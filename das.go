@@ -8,11 +8,11 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	gcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/libp2p/go-libp2p"
 	mplex "github.com/libp2p/go-libp2p-mplex"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
@@ -107,10 +107,23 @@ func (g *DasGuardian) init() error {
 	return nil
 }
 
-func (g *DasGuardian) Scan(ctx context.Context, peerInfo peer.AddrInfo) error {
+func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) error {
+	enodeAddr, err := parseMaddrFromEnode(ethNode)
+	if err != nil {
+		return err
+	}
+
+	custody, err := GetCustodyFromEnr(ethNode)
+	if err != nil {
+		log.Warn(err.Error())
+	}
+	custodyGroups := GetCustodyIdxsForNode(ethNode.ID(), int(custody))
+
 	log.WithFields(log.Fields{
-		"peer-id": peerInfo.ID.String(),
-		"maddr":   peerInfo.Addrs,
+		"peer-id":            enodeAddr.ID.String(),
+		"maddr":              enodeAddr.Addrs,
+		"enr-custody":        custody,
+		"enr-custody-groups": custodyGroups,
 	}).Info("scanning eth-node")
 
 	return nil

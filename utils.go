@@ -8,28 +8,14 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
-
-	log "github.com/sirupsen/logrus"
 )
 
-func parseNodeConnectionInfo(rawKey string) (*peer.AddrInfo, error) {
+func parseNode(rawEnr string) (*enode.Node, error) {
 	// check first if the key is a ENR
-	addr, err := parseMaddrFromENR(rawKey)
-	if err == nil {
-		return addr, nil
-	} else {
-		log.Warnf("not ENR: ", err.Error())
-	}
-
-	// try to parse the Maddrs
-	return peer.AddrInfoFromString(rawKey)
+	return enode.Parse(enode.ValidSchemes, rawEnr)
 }
 
-func parseMaddrFromENR(rawKey string) (*peer.AddrInfo, error) {
-	ethNode, err := enode.Parse(enode.ValidSchemes, rawKey)
-	if err != nil {
-		return nil, err
-	}
+func parseMaddrFromEnode(ethNode *enode.Node) (*peer.AddrInfo, error) {
 	// TODO: only working with IPv4 for now
 	ipv4 := ethNode.IP()
 	port := ethNode.TCP()

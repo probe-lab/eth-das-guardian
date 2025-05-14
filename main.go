@@ -119,14 +119,14 @@ func guardianAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// compose the network target for the peer
-	peerInfo, err := parseNodeConnectionInfo(rootConfig.NodeKey)
+	ethNode, err := parseNode(rootConfig.NodeKey)
 	if err != nil {
 		return err
 	}
 
 	return guardian.Scan(
 		ctx,
-		*peerInfo,
+		ethNode,
 	)
 }
 
