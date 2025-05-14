@@ -35,7 +35,6 @@ func parseMaddrFromEnode(ethNode *enode.Node) (*peer.AddrInfo, error) {
 		ID:    *peerID,
 		Addrs: []multiaddr.Multiaddr{maddr},
 	}, nil
-
 }
 
 func libp2pPeerIDfromNodeID(ethNode *enode.Node) (*peer.ID, error) {

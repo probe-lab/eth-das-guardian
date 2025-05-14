@@ -111,6 +111,8 @@ func guardianAction(ctx context.Context, cmd *cli.Command) error {
 	ethConfig := &DasGuardianConfig{
 		Libp2pHost: rootConfig.Libp2pHost,
 		Libp2pPort: rootConfig.Libp2pPort,
+		ConnectionRetries: rootConfig.ConnectionRetries,
+		ConnectionTimeout: rootConfig.ConnectionTimeout,
 	}
 
 	guardian, err := NewDASGuardian(ethConfig)
