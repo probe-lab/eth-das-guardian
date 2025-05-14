@@ -1,0 +1,81 @@
+package main
+
+import (
+	"crypto/elliptic"
+	"fmt"
+
+	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
+
+	log "github.com/sirupsen/logrus"
+)
+
+func parseNodeConnectionInfo(rawKey string) (*peer.AddrInfo, error) {
+	// check first if the key is a ENR
+	addr, err := parseMaddrFromENR(rawKey)
+	if err == nil {
+		return addr, nil
+	} else {
+		log.Warnf("not ENR: ", err.Error())
+	}
+
+	// try to parse the Maddrs
+	return peer.AddrInfoFromString(rawKey)
+}
+
+func parseMaddrFromENR(rawKey string) (*peer.AddrInfo, error) {
+	ethNode, err := enode.Parse(enode.ValidSchemes, rawKey)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: only working with IPv4 for now
+	ipv4 := ethNode.IP()
+	port := ethNode.TCP()
+	peerID, err := libp2pPeerIDfromNodeID(ethNode)
+	if err != nil {
+		return nil, err
+	}
+
+	maddr, err := multiaddr.NewMultiaddr(
+		fmt.Sprintf(
+			"/ip4/%s/tcp/%d",
+			ipv4,
+			port,
+		),
+	)
+	return &peer.AddrInfo{
+		ID:    *peerID,
+		Addrs: []multiaddr.Multiaddr{maddr},
+	}, nil
+
+}
+
+func libp2pPeerIDfromNodeID(ethNode *enode.Node) (*peer.ID, error) {
+	pubKey := ethNode.Pubkey()
+	if pubKey == nil {
+		return nil, fmt.Errorf("no public key")
+	}
+
+	// tried to move away from the "Deprecated elliptic" dependency
+	// but the suggested pubKey.EDCH() method fails and it still calls elliptic.Marshal
+	// https://cs.opensource.google/go/go/+/refs/tags/go1.24.3:src/crypto/ecdsa/ecdsa.go;l=59
+	pubBytes := elliptic.Marshal(pubKey.Curve, pubKey.X, pubKey.Y)
+	secpKey, err := crypto.UnmarshalSecp256k1PublicKey(pubBytes)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal secp256k1 public key: %w", err)
+	}
+
+	peerID, err := peer.IDFromPublicKey(secpKey)
+	if err != nil {
+		return nil, fmt.Errorf("peer ID from public key: %w", err)
+	}
+	return &peerID, nil
+}
+
+func truncateStr(text string, width int) string {
+	r := []rune(text)
+	trunc := r[:width]
+	return string(trunc) + "..."
+}
