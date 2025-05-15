@@ -1,0 +1,220 @@
+package rpcs
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"time"
+
+	ssz "github.com/ferranbt/fastssz"
+
+	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p"
+	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/encoder"
+	"github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
+	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	log "github.com/sirupsen/logrus"
+)
+
+var (
+	RPCDataColumnsByRangeV1 = "/eth2/beacon_chain/req/data_column_sidecars_by_range/1"
+	RPCDataColumnsByRootV1  = "/eth2/beacon_chain/req/data_column_sidecars_by_root/1"
+	RPCMetaDataV3           = "/eth2/beacon_chain/req/metadata/3"
+)
+
+type ReqRespConfig struct {
+	Encoder      encoder.NetworkEncoding
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+
+	// local metadata
+	BeaconStatus   pb.Status
+	BeaconMetadata pb.MetaDataV2
+}
+
+// ReqResp implements the request response domain of the eth2 RPC spec:
+// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md
+type ReqResp struct {
+	host host.Host
+	cfg  *ReqRespConfig
+}
+
+type ContextStreamHandler func(context.Context, network.Stream) error
+
+func NewReqResp(h host.Host, cfg *ReqRespConfig) (*ReqResp, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("req resp server config must not be nil")
+	}
+	return &ReqResp{
+		host: h,
+		cfg:  cfg,
+	}, nil
+}
+
+// RegisterHandlers registers all RPC handlers. It checks first if all
+// preconditions are met. This includes valid initial status and metadata
+// values.
+func (r *ReqResp) RegisterHandlers(ctx context.Context) error {
+	handlers := map[string]ContextStreamHandler{
+		p2p.RPCPingTopicV1:                r.pingHandler,
+		p2p.RPCGoodByeTopicV1:             r.goodbyeHandler,
+		p2p.RPCStatusTopicV1:              r.dummyHandler,
+		p2p.RPCMetaDataTopicV1:            r.dummyHandler,
+		p2p.RPCMetaDataTopicV2:            r.dummyHandler,
+		RPCMetaDataV3:                     r.dummyHandler,
+		p2p.RPCBlocksByRootTopicV1:        r.dummyHandler,
+		p2p.RPCBlocksByRootTopicV2:        r.dummyHandler,
+		p2p.RPCBlocksByRangeTopicV1:       r.dummyHandler,
+		p2p.RPCBlocksByRangeTopicV2:       r.dummyHandler,
+		p2p.RPCBlobSidecarsByRangeTopicV1: r.dummyHandler,
+		p2p.RPCBlobSidecarsByRootTopicV1:  r.dummyHandler,
+		RPCDataColumnsByRangeV1:           r.dummyHandler,
+		RPCDataColumnsByRootV1:            r.dummyHandler,
+	}
+
+	for id, handler := range handlers {
+		protocolID := r.protocolID(id)
+		log.WithField("protocol", protocolID).Debug("Register protocol handler...")
+		r.host.SetStreamHandler(protocolID, r.wrapStreamHandler(ctx, string(protocolID), handler))
+	}
+
+	return nil
+}
+
+func (r *ReqResp) protocolID(topic string) protocol.ID {
+	return protocol.ID(topic + r.cfg.Encoder.ProtocolSuffix())
+}
+
+// read-write functions
+func (r *ReqResp) readRequest(ctx context.Context, stream network.Stream, data ssz.Unmarshaler) (err error) {
+	if err = stream.SetReadDeadline(time.Now().Add(r.cfg.ReadTimeout)); err != nil {
+		return fmt.Errorf("failed setting read deadline on stream: %w", err)
+	}
+
+	if err = r.cfg.Encoder.DecodeWithMaxLength(stream, data); err != nil {
+		return fmt.Errorf("read request data %T: %w", data, err)
+	}
+
+	if err = stream.CloseRead(); err != nil {
+		return fmt.Errorf("failed to close reading side of stream: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ReqResp) readResponse(ctx context.Context, stream network.Stream, data ssz.Unmarshaler) (err error) {
+	if err = stream.SetReadDeadline(time.Now().Add(r.cfg.ReadTimeout)); err != nil {
+		return fmt.Errorf("failed setting read deadline on stream: %w", err)
+	}
+
+	code := make([]byte, 1)
+	if _, err := io.ReadFull(stream, code); err != nil {
+		return fmt.Errorf("failed reading response code: %w", err)
+	}
+
+	// code == 0 means success
+	// code != 0 means error
+	if int(code[0]) != 0 {
+		errData, err := io.ReadAll(stream)
+		if err != nil {
+			return fmt.Errorf("failed reading error data (code %d): %w", int(code[0]), err)
+		}
+
+		return fmt.Errorf("received error response (code %d): %s", int(code[0]), string(errData))
+	}
+
+	if err = r.cfg.Encoder.DecodeWithMaxLength(stream, data); err != nil {
+		return fmt.Errorf("read request data %T: %w", data, err)
+	}
+
+	if err = stream.CloseRead(); err != nil {
+		return fmt.Errorf("failed to close reading side of stream: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ReqResp) writeRequest(ctx context.Context, stream network.Stream, data ssz.Marshaler) (err error) {
+	if err = stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
+		return fmt.Errorf("failed setting write deadline on stream: %w", err)
+	}
+
+	if _, err = r.cfg.Encoder.EncodeWithMaxLength(stream, data); err != nil {
+		return fmt.Errorf("read sequence number: %w", err)
+	}
+
+	if err = stream.CloseWrite(); err != nil {
+		return fmt.Errorf("failed to close writing side of stream: %w", err)
+	}
+
+	return nil
+}
+
+// writeResponse differs from writeRequest in prefixing the payload data with
+// a response code byte.
+func (r *ReqResp) writeResponse(ctx context.Context, stream network.Stream, data ssz.Marshaler) (err error) {
+	if err = stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
+		return fmt.Errorf("failed setting write deadline on stream: %w", err)
+	}
+
+	if _, err := stream.Write([]byte{0}); err != nil { // success response
+		return fmt.Errorf("write success response code: %w", err)
+	}
+
+	if _, err = r.cfg.Encoder.EncodeWithMaxLength(stream, data); err != nil {
+		return fmt.Errorf("read sequence number: %w", err)
+	}
+
+	if err = stream.CloseWrite(); err != nil {
+		return fmt.Errorf("failed to close writing side of stream: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ReqResp) wrapStreamHandler(ctx context.Context, name string, handler ContextStreamHandler) network.StreamHandler {
+	return func(s network.Stream) {
+		// Reset is a no-op if the stream is already closed. Closing the stream
+		// is the responsibility of the handler.
+		defer s.Reset()
+
+		// time the request handling
+		err := handler(ctx, s)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"protocol":    s.Protocol(),
+				"error":       err,
+				"remote-peer": s.Conn().RemotePeer().String(),
+			}).Debug("failed handling rpc")
+		}
+	}
+}
+
+func (r *ReqResp) pingHandler(ctx context.Context, stream network.Stream) error {
+	req := primitives.SSZUint64(0)
+	if err := r.readRequest(ctx, stream, &req); err != nil {
+		return fmt.Errorf("read sequence number: %w", err)
+	}
+
+	sq := primitives.SSZUint64(uint64(23))
+	if err := r.writeResponse(ctx, stream, &sq); err != nil {
+		log.Error("write sequence number", err)
+	}
+	return stream.Close()
+}
+
+func (r *ReqResp) goodbyeHandler(ctx context.Context, stream network.Stream) error {
+	req := primitives.SSZUint64(0)
+	if err := r.readRequest(ctx, stream, &req); err != nil {
+		return fmt.Errorf("read sequence number: %w", err)
+	}
+	log.Warnf("received GoodBye from %s", stream.Conn().RemotePeer().String())
+	return stream.Close()
+}
+
+// Beacon Metadata
+func (r *ReqResp) dummyHandler(ctx context.Context, stream network.Stream) error {
+	return stream.Reset()
+}

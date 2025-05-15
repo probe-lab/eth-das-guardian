@@ -14,20 +14,14 @@ var rootConfig = struct {
 	NodeKey           string
 	Libp2pHost        string
 	Libp2pPort        int
-	TrustedPrysm      bool
-	PrysmHost         string
-	PrysmHTTPport     int
-	PrysmGRPCport     int
+	BeaconAPIendpoint string
 	ConnectionRetries int
 	ConnectionTimeout time.Duration
 }{
 	NodeKey:           "",
 	Libp2pHost:        "127.0.0.1",
 	Libp2pPort:        9013,
-	TrustedPrysm:      true,
-	PrysmHost:         "127.0.0.1",
-	PrysmHTTPport:     3500,
-	PrysmGRPCport:     4000,
+	BeaconAPIendpoint: "http://127.0.0.1:5052/",
 	ConnectionRetries: 3,
 	ConnectionTimeout: 30 * time.Second,
 }
@@ -43,7 +37,7 @@ var app = &cli.Command{
 var rootFlags = []cli.Flag{
 	&cli.StringFlag{
 		Name:        "node-key",
-		Usage:       "Node key (ENR or Mulitaddress)",
+		Usage:       "Node key (ENR)",
 		Value:       rootConfig.NodeKey,
 		Destination: &rootConfig.NodeKey,
 	},
@@ -59,32 +53,12 @@ var rootFlags = []cli.Flag{
 		Value:       rootConfig.Libp2pPort,
 		Destination: &rootConfig.Libp2pPort,
 	},
-	/*
-		&cli.BoolFlag{
-			Name:        "local.trusted.addr",
-			Usage:       "To advertise the localhost multiaddress to our trusted control Prysm node",
-			Value:       rootConfig.TrustedPrysm,
-			Destination: &rootConfig.TrustedPrysm,
-		},
-		&cli.StringFlag{
-			Name:        "prysm.host",
-			Usage:       "The host ip/name where Prysm's (beacon) API is accessible",
-			Value:       rootConfig.PrysmHost,
-			Destination: &rootConfig.PrysmHost,
-		},
-		&cli.IntFlag{
-			Name:        "prysm.port.http",
-			Usage:       "The port on which Prysm's beacon nodes' Query HTTP API is listening on",
-			Value:       rootConfig.PrysmHTTPport,
-			Destination: &rootConfig.PrysmHTTPport,
-		},
-		&cli.IntFlag{
-			Name:        "prysm.port.grpc",
-			Usage:       "The port on which Prysm's gRPC API is listening on",
-			Value:       rootConfig.PrysmGRPCport,
-			Destination: &rootConfig.PrysmGRPCport,
-		},
-	*/
+	&cli.StringFlag{
+		Name:        "api.endpoint",
+		Usage:       "The host ip+port of the Beacon API (http://localhost:5052/)",
+		Value:       rootConfig.BeaconAPIendpoint,
+		Destination: &rootConfig.BeaconAPIendpoint,
+	},
 	&cli.IntFlag{
 		Name:        "connection.retries",
 		Usage:       "Number of retries when connecting the node.",
@@ -101,6 +75,7 @@ var rootFlags = []cli.Flag{
 
 func guardianAction(ctx context.Context, cmd *cli.Command) error {
 	log.WithFields(log.Fields{
+		"beacon-api":         rootConfig.BeaconAPIendpoint,
 		"node-key":           truncateStr(rootConfig.NodeKey, 24),
 		"libp2p-host":        rootConfig.Libp2pHost,
 		"libp2p-port":        rootConfig.Libp2pPort,
@@ -109,13 +84,14 @@ func guardianAction(ctx context.Context, cmd *cli.Command) error {
 	}).Info("running eth-das-guardian")
 
 	ethConfig := &DasGuardianConfig{
-		Libp2pHost: rootConfig.Libp2pHost,
-		Libp2pPort: rootConfig.Libp2pPort,
+		Libp2pHost:        rootConfig.Libp2pHost,
+		Libp2pPort:        rootConfig.Libp2pPort,
 		ConnectionRetries: rootConfig.ConnectionRetries,
 		ConnectionTimeout: rootConfig.ConnectionTimeout,
+		BeaconAPIendpoint: rootConfig.BeaconAPIendpoint,
 	}
 
-	guardian, err := NewDASGuardian(ethConfig)
+	guardian, err := NewDASGuardian(ctx, ethConfig)
 	if err != nil {
 		return err
 	}
