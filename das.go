@@ -5,11 +5,12 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"fmt"
+	mrand "math/rand"
 	"time"
 
 	"github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
 	"github.com/OffchainLabs/prysm/v6/encoding/bytesutil"
-	ethpb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
+	"github.com/pkg/errors"
 	"github.com/probe-lab/eth-das-guardian/rpcs"
 	bitfield "github.com/prysmaticlabs/go-bitfield"
 
@@ -54,16 +55,19 @@ const (
 	Attnets           = "attnets"
 	Syncnets          = "syncnets"
 	CustodyGroupCount = "custody_group_count"
+
+	// values
+	DataColumnSidecarSubnetCount = uint64(128)
 )
 
-var (
+const (
 	Libp2pConnGraceTime = 30 * time.Second
 	InitTimeout         = 10 * time.Second
 	ApiStateTimeout     = 30 * time.Second
 	ApiQueryTimeout     = 10 * time.Second
 
-	Samples      = uint64(3)
-	CustodySlots = uint64(4096 * 32)
+	Samples      = uint64(4)
+	CustodySlots = uint64(4096 * 16)
 )
 
 type DasGuardianConfig struct {
@@ -258,7 +262,10 @@ func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) error {
 	if err != nil {
 		log.Warn(err.Error())
 	}
-	enrCustodyGroups := GetCustodyIdxsForNode(ethNode.ID(), int(enrCustody))
+	enrCustodyGroups, err := CustodyColumnsSlice(ethNode.ID(), enrCustody, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
+	if err != nil {
+		return err
+	}
 
 	// connection attempt using the libp2p host
 	if err := g.ConnectNode(ctx, enodeAddr); err != nil {
@@ -275,7 +282,17 @@ func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) error {
 	// exchange beacon-metadata
 	remoteMetadata := g.requestBeaconMetadata(ctx, enodeAddr.ID)
 	metadataLogs := g.visualizeBeaconMetadata(remoteMetadata)
-	metadataCustodyIdxs := GetCustodyIdxsForNode(ethNode.ID(), int(remoteMetadata.CustodyGroupCount))
+	metadataCustodyIdxs, err := CustodyColumnsSlice(ethNode.ID(), remoteMetadata.CustodyGroupCount, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
+	if err != nil {
+		return errors.Wrap(err, "wrong cuystody subnet")
+	}
+
+	// exchange ping
+	startT := time.Now()
+	if err := g.rpcServ.Ping(ctx, enodeAddr.ID); err != nil {
+		return nil
+	}
+	libp2pInfo["ping_rtt"] = time.Since(startT)
 
 	// compare enr custody to metadata one
 	if enrCustody != remoteMetadata.CustodyGroupCount {
@@ -301,12 +318,20 @@ func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) error {
 	randomSlotsLogs := g.visualizeRandomSlots(randomSlots)
 	prettyLogrusFields("to request slot->blobs ...", randomSlotsLogs)
 
-	// DAS??!?
-	if err := g.getDataColumnForSlotAndSubnet(ctx, enodeAddr.ID, randomSlots, metadataCustodyIdxs[:1]); err != nil {
+	// get the blocks so that we can compare the obtained results with the chain ones
+	bBlocks, err := g.fetchSlotBlocks(ctx, randomSlots)
+	if err != nil {
 		return err
 	}
 
-	return nil
+	// DAS??!?
+	dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, enodeAddr.ID, randomSlots, metadataCustodyIdxs[:])
+	if err != nil {
+		return err
+	}
+
+	// evaluate the results
+	return evaluateColumnResponses(randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
 }
 
 func (g *DasGuardian) subscribeToTopics(ctx context.Context, topics []string) error {
@@ -444,7 +469,7 @@ func (g *DasGuardian) composeLocalBeaconMetadata() pb.MetaDataV2 {
 }
 
 func computeForkDigest(forkV []byte, valRoots []byte) ([]byte, error) {
-	r, err := (&ethpb.ForkData{
+	r, err := (&pb.ForkData{
 		CurrentVersion:        forkV,
 		GenesisValidatorsRoot: valRoots,
 	}).HashTreeRoot()
@@ -456,7 +481,6 @@ func computeForkDigest(forkV []byte, valRoots []byte) ([]byte, error) {
 }
 
 func prettyLogrusFields(msg string, fields map[string]any) {
-	log.Info()
 	log.Info(msg)
 	for k, v := range fields {
 		log.Info("\t* ", k, ":\t", v)
@@ -479,51 +503,76 @@ func (g *DasGuardian) selectRandomSlotsForRange(headSlot uint64, bins uint64, ma
 	items := g.randomItemsForRange(bins, maxValue)
 	randomSlots := make([]uint64, len(items))
 	for i, it := range items {
-		randomSlots[i] = headSlot - it
+		nextTarget := headSlot - it
+		if nextTarget > headSlot || nextTarget < (headSlot-CustodySlots) {
+			continue
+		}
+		randomSlots[i] = nextTarget
 	}
 	return randomSlots
 }
 
 func (g *DasGuardian) randomItemsForRange(bins uint64, maxValue uint64) []uint64 {
+	// return a random slot in between the given ranges rand(CUSTODY_SLOTS, HEAD, bins )
 	binSize := maxValue / bins
 	randomSample := func(max, min uint64) uint64 {
-		return uint64(max-min) + min
+		in := int64(min)
+		ax := int64(max)
+		return uint64(mrand.Int63n(ax-in) + in)
 	}
 	var samples []uint64
-	for minValue := uint64(0); minValue < maxValue; minValue = minValue + binSize {
-		s := randomSample(minValue, minValue+binSize)
+	for minValue := uint64(1); len(samples) < int(bins); minValue = minValue + binSize {
+		s := randomSample(minValue+binSize, minValue)
 		samples = append(samples, s)
 	}
 	return samples
 }
 
-func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, slots []uint64, columnIdxs []uint64) error {
+func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, slots []uint64, columnIdxs []uint64) ([][]*pb.DataColumnSidecar, error) {
 	log.WithFields(log.Fields{
 		"slots":   len(slots),
 		"columns": len(columnIdxs),
-	}).Info("sampling node...")
+	}).Info("sampling node for...")
 
-	for _, slot := range slots {
-		// make the request for each slots
-		duration, columns, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, slot, columnIdxs)
+	// TODO: make sure that we limit the number of columns that we request (slots * idxs * columns)
+	dataColumns := make([][]*pb.DataColumnSidecar, len(slots))
+
+	startT := time.Now()
+	// make the request for each slots
+	for s, slot := range slots {
+		// make the request per each column
+		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, slot, columnIdxs)
 		if err != nil {
-			return err
+			return dataColumns, err
 		}
+		dataColumns[s] = cols
 
-		// check if we got all columns (if theres is anything missing there)
-		/*
-			for _, col := range columns {
-
-			}
-		*/
-		// validate the integrity of the column
-
-		// compose the results?
+		// compose the results
 		log.WithFields(log.Fields{
 			"req-duration": duration,
 			"slot":         slot,
-			"das-result":   fmt.Sprintf("%d/%d columns", len(columns), len(columnIdxs)),
-		}).Info("sampling node...")
+			"das-result":   fmt.Sprintf("%d/%d columns", len(cols), len(columnIdxs)),
+		}).Info("req info...")
 	}
-	return nil
+
+	opDur := time.Since(startT)
+	log.WithFields(log.Fields{
+		"duration": opDur,
+	}).Info("node custody sampling done...")
+	return dataColumns, nil
+}
+
+func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]api.BeaconBlock, error) {
+	log.WithFields(log.Fields{
+		"slots": slots,
+	}).Info("requesting slot-blocks from beacon API...")
+	blocks := make([]api.BeaconBlock, len(slots))
+	for i, slot := range slots {
+		b, err := g.apiCli.GetBeaconBlock(ctx, slot)
+		if err != nil {
+			return blocks, err
+		}
+		blocks[i] = b
+	}
+	return blocks, nil
 }

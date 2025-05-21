@@ -2,10 +2,11 @@ package rpcs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/libp2p/go-libp2p/core"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -13,10 +14,13 @@ import (
 
 	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p"
 	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/encoder"
+	"github.com/OffchainLabs/prysm/v6/beacon-chain/sync"
 	psync "github.com/OffchainLabs/prysm/v6/beacon-chain/sync"
 	"github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
 	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 )
+
+const PeerDAScolumns = 128
 
 func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
 	stream, err := r.host.NewStream(ctx, pid, r.protocolID(p2p.RPCPingTopicV1))
@@ -244,6 +248,8 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	var err error
 	dataColumns := make([]*pb.DataColumnSidecar, 0)
 
+	chunks := uint64(1 * len(columnIdxs) * PeerDAScolumns)
+
 	stream, err := r.host.NewStream(ctx, pid, r.protocolID(RPCDataColumnsByRangeV1))
 	if err != nil {
 		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", p2p.RPCMetaDataTopicV2, pid, err)
@@ -262,64 +268,105 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 
 	tStart := time.Now()
 	// read and decode status response
-	for i := uint64(0); ; i++ {
-		isFirstChunk := i == 0
-		column, err := r.readChunkedDataColumn(stream, &encoder.SszNetworkEncoder{}, isFirstChunk)
+
+	for i := uint64(0); ; /* no stop condition */ i++ {
+		dataCol, err := readChunkedDataColumnSideCar(stream, r.cfg.Encoder, r.cfg.BeaconStatus.ForkDigest)
 		if errors.Is(err, io.EOF) {
+			// End of stream.
 			break
 		}
-		if err != nil {
-			return time.Duration(0), nil, fmt.Errorf("reading data_columns_by_range request: %w", err)
+
+		if dataCol == nil {
+			return time.Duration(0), dataColumns, errors.Wrap(err, "validation error")
 		}
-		fmt.Println(column)
-		dataColumns = append(dataColumns, column)
+
+		if err != nil {
+			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar")
+		}
+
+		if i >= chunks {
+			// The response MUST contain no more than `reqCount` blocks.
+			// (`reqCount` is already capped by `maxRequestDataColumnSideCar`.)
+			return time.Duration(0), dataColumns, errors.New("invalid - response contains more data column sidecars than requested")
+		}
+
+		dataColumns = append(dataColumns, dataCol)
 	}
 	opDuration := time.Since(tStart)
 	return opDuration, dataColumns, nil
 }
 
-func (r *ReqResp) readChunkedDataColumn(stream core.Stream, encoding encoder.NetworkEncoding, isFirstChunk bool) (*pb.DataColumnSidecar, error) {
-	// Handle deadlines differently for first chunk
-	if isFirstChunk {
-		return r.readFirstChunkedDataColumn(stream, encoding)
+// -- new --
+
+func readChunkedDataColumnSideCar(
+	stream network.Stream,
+	encoding encoder.NetworkEncoding,
+	forkDigest []byte,
+	//validation any, // TODO: to validate blob column
+) (*pb.DataColumnSidecar, error) {
+	// Read the status code from the stream.
+	statusCode, errMessage, err := sync.ReadStatusCode(stream, encoding)
+	if err != nil {
+		return nil, errors.Wrap(err, "read status code")
 	}
-	return r.readResponseDataColumnChunk(stream, encoding)
+
+	if statusCode != 0 {
+		return nil, errors.New("data column chunked read failure " + errMessage)
+	}
+	// Retrieve the fork digest.
+	ctxBytes, err := readContextFromStream(stream)
+	if err != nil {
+		return nil, errors.Wrap(err, "read context from stream")
+	}
+
+	// Check if the fork digest is recognized.
+	if string(ctxBytes) != string(forkDigest) {
+		return nil, errors.Errorf("unrecognized fork digest %#x", ctxBytes)
+	}
+
+	// Decode the data column sidecar from the stream.
+	dataColumnSidecar := new(pb.DataColumnSidecar)
+	if err := encoding.DecodeWithMaxLength(stream, dataColumnSidecar); err != nil {
+		return nil, errors.Wrap(err, "failed to decode the protobuf-encoded BlobSidecar message from RPC chunk stream")
+	}
+
+	// Run validation functions.
+	/*
+		for _, val := range validation {
+			if !val(roDataColumn) {
+				return nil, nil
+			}
+		}
+	*/
+	return dataColumnSidecar, nil
 }
 
-func (r *ReqResp) readFirstChunkedDataColumn(stream core.Stream, encoding encoder.NetworkEncoding) (*pb.DataColumnSidecar, error) {
-	// read status
-	code, errMsg, err := psync.ReadStatusCode(stream, encoding)
+// reads any attached context-bytes to the payload.
+func readContextFromStream(stream network.Stream) ([]byte, error) {
+	hasCtx, err := expectRpcContext(stream)
 	if err != nil {
 		return nil, err
 	}
-	if code != 0 {
-		return nil, fmt.Errorf(errMsg)
+	if !hasCtx {
+		return []byte{}, nil
 	}
-	// set deadline for reading from stream
-	if err = stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
-		return nil, fmt.Errorf("failed setting write deadline on stream: %w", err)
-	}
-	return r.decodeFuluDataColumn(encoding, stream)
-}
-
-func (r *ReqResp) readResponseDataColumnChunk(stream core.Stream, encoding encoder.NetworkEncoding) (*pb.DataColumnSidecar, error) {
-	if err := stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
-		return nil, fmt.Errorf("failed setting write deadline on stream: %w", err)
-	}
-	code, errMsg, err := psync.ReadStatusCode(stream, encoding)
-	if err != nil {
+	// Read context (fork-digest) from stream
+	b := make([]byte, 4)
+	if _, err := io.ReadFull(stream, b); err != nil {
 		return nil, err
 	}
-	if code != 0 {
-		return nil, fmt.Errorf(errMsg)
-	}
-	return r.decodeFuluDataColumn(encoding, stream)
+	return b, nil
 }
 
-func (r *ReqResp) decodeFuluDataColumn(encoding encoder.NetworkEncoding, stream network.Stream) (dataCol *pb.DataColumnSidecar, err error) {
-	err = encoding.DecodeWithMaxLength(stream, dataCol)
+func expectRpcContext(stream network.Stream) (bool, error) {
+	_, message, version, err := p2p.TopicDeconstructor(string(stream.Protocol()))
 	if err != nil {
-		return dataCol, err
+		return false, err
 	}
-	return dataCol, nil
+	// For backwards compatibility, we want to omit context bytes for certain v1 methods that were defined before
+	// context bytes were introduced into the protocol.
+	if version == p2p.SchemaVersionV1 && p2p.OmitContextBytesV1[message] {
+		return false, nil
+	}
+	return true, nil
 }

@@ -90,6 +90,9 @@ func (c *Client) get(
 	if err != nil {
 		return respBody, errors.Wrap(err, fmt.Sprintf("unable to request URL %s", callURL.String()))
 	}
+	if resp == nil {
+		return respBody, errors.New("got empty response from the API")
+	}
 	defer resp.Body.Close()
 
 	respBody, err = io.ReadAll(resp.Body)
