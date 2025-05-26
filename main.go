@@ -37,37 +37,37 @@ var app = &cli.Command{
 var rootFlags = []cli.Flag{
 	&cli.StringFlag{
 		Name:        "node.key",
-		Usage:       "Node key (ENR)",
+		Usage:       "ENR entry of the node we want to probe",
 		Value:       rootConfig.NodeKey,
 		Destination: &rootConfig.NodeKey,
 	},
 	&cli.StringFlag{
 		Name:        "libp2p.host",
-		Usage:       "IP where Ookla will setup the Libp2p host",
+		Usage:       "IP for the Libp2p host",
 		Value:       rootConfig.Libp2pHost,
 		Destination: &rootConfig.Libp2pHost,
 	},
 	&cli.IntFlag{
 		Name:        "libp2p.port",
-		Usage:       "Port where Ookla's Libp2p host will listen",
+		Usage:       "Port for the libp2p host",
 		Value:       rootConfig.Libp2pPort,
 		Destination: &rootConfig.Libp2pPort,
 	},
 	&cli.StringFlag{
 		Name:        "api.endpoint",
-		Usage:       "The host ip+port of the Beacon API (http://localhost:5052/)",
+		Usage:       "The url endpoint of a Beacon API (http://localhost:5052/)",
 		Value:       rootConfig.BeaconAPIendpoint,
 		Destination: &rootConfig.BeaconAPIendpoint,
 	},
 	&cli.IntFlag{
 		Name:        "connection.retries",
-		Usage:       "Number of retries when connecting the node.",
+		Usage:       "Number of retries when connecting the node",
 		Value:       rootConfig.ConnectionRetries,
 		Destination: &rootConfig.ConnectionRetries,
 	},
 	&cli.DurationFlag{
 		Name:        "connection.timeout",
-		Usage:       "Timeout for the connection attempt to the node.",
+		Usage:       "Timeout for the connection attempt to the node",
 		Value:       rootConfig.ConnectionTimeout,
 		Destination: &rootConfig.ConnectionTimeout,
 	},
