@@ -20,10 +20,9 @@ type ClientConfig struct {
 }
 
 type Client struct {
-	cfg     ClientConfig
-	base    *url.URL
-	address string
-	client  *http.Client
+	cfg    ClientConfig
+	base   *url.URL
+	client *http.Client
 }
 
 func NewClient(cfg ClientConfig) (*Client, error) {

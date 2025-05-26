@@ -101,12 +101,7 @@ func (c *DasGuardianConfig) Libp2pHostOpts() ([]libp2p.Option, error) {
 		return nil, fmt.Errorf("construct libp2p listen maddr: %w", err)
 	}
 
-	str, err := rcmgr.NewStatsTraceReporter()
-	if err != nil {
-		return nil, err
-	}
-
-	rmgr, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(rcmgr.DefaultLimits.AutoScale()), rcmgr.WithTraceReporter(str))
+	rmgr, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(rcmgr.DefaultLimits.AutoScale()))
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +122,7 @@ func (c *DasGuardianConfig) Libp2pHostOpts() ([]libp2p.Option, error) {
 	return opts, nil
 }
 
-func (n *DasGuardianConfig) pubsubOptions() []pubsub.Option {
+func (n *DasGuardianConfig) PubsubOptions() []pubsub.Option {
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
 		pubsub.WithNoAuthor(),
@@ -163,7 +158,7 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 		return nil, err
 	}
 
-	pubsub, err := pubsub.NewGossipSub(ctx, h, cfg.pubsubOptions()...)
+	pubsub, err := pubsub.NewGossipSub(ctx, h, cfg.PubsubOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("new PubSub service: %w", err)
 	}

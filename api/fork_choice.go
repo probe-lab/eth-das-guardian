@@ -7,9 +7,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-var (
-	ForkChoiceBase = "eth/v1/debug/fork_choice"
-)
+var ForkChoiceBase = "eth/v1/debug/fork_choice"
 
 type ForkChoice struct {
 	JustifiedCheckpoint Checkpoint       `json:"justified_checkpoint"`

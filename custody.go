@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"math"
 	"sort"
 
@@ -17,11 +16,6 @@ var (
 	NUMBER_OF_CUSTODY_GROUPS = uint64(128)
 	UINT256_MAX              = &uint256.Int{math.MaxUint64, math.MaxUint64, math.MaxUint64, math.MaxUint64}
 )
-
-func hex2Bytes(str string) []byte {
-	h, _ := hex.DecodeString(str)
-	return h
-}
 
 // https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#custody-group-count
 type CgcEntry uint64
@@ -42,7 +36,6 @@ func GetCustodyFromEnr(ethNode *enode.Node) (custody uint64, err error) {
 }
 
 // Mainly from: prysm/beacon-chain/core/peerdas/helpers.go
-
 var (
 	// Custom errors
 	errCustodySubnetCountTooLarge = errors.New("custody subnet count larger than data column sidecar subnet count")
@@ -94,7 +87,6 @@ func CustodyColumnSubnets(nodeId enode.ID, custodySubnetCount uint64, dataColumn
 // CustodyColumns computes the columns the node should custody.
 // https://github.com/ethereum/consensus-specs/blob/dev/specs/_features/eip7594/das-core.md#helper-functions
 func CustodyColumns(nodeId enode.ID, custodySubnetCount uint64, numberOfColumns uint64, dataColumnSidecarSubnetCount uint64) (map[uint64]bool, error) {
-
 	// Compute the custodied subnets.
 	subnetIds, err := CustodyColumnSubnets(nodeId, custodySubnetCount, dataColumnSidecarSubnetCount)
 	if err != nil {

@@ -27,7 +27,8 @@ func evaluateColumnResponses(slots []uint64, columnIdxs []uint64, bBlocks []api.
 
 		// still check it
 		if len(cols[s]) == 0 {
-			for i, _ := range columnIdxs {
+			//lint:ignore S1005 complaints all the time
+			for i := range columnIdxs {
 				newSummaryRow[i+1] = "x"
 			}
 			log.Warnf(

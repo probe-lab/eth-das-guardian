@@ -9,9 +9,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-var (
-	BlockBase = "eth/v2/beacon/blocks/%d"
-)
+var BlockBase = "eth/v2/beacon/blocks/%d"
 
 type BeaconBlock struct {
 	Version             string `json:"version"`

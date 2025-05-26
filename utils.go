@@ -34,7 +34,7 @@ func parseMaddrFromEnode(ethNode *enode.Node) (*peer.AddrInfo, error) {
 	return &peer.AddrInfo{
 		ID:    *peerID,
 		Addrs: []multiaddr.Multiaddr{maddr},
-	}, nil
+	}, err
 }
 
 func libp2pPeerIDfromNodeID(ethNode *enode.Node) (*peer.ID, error) {
@@ -46,6 +46,7 @@ func libp2pPeerIDfromNodeID(ethNode *enode.Node) (*peer.ID, error) {
 	// tried to move away from the "Deprecated elliptic" dependency
 	// but the suggested pubKey.EDCH() method fails and it still calls elliptic.Marshal
 	// https://cs.opensource.google/go/go/+/refs/tags/go1.24.3:src/crypto/ecdsa/ecdsa.go;l=59
+	//lint:ignore SA1019 ignore this, not that easy to find a work around!
 	pubBytes := elliptic.Marshal(pubKey.Curve, pubKey.X, pubKey.Y)
 	secpKey, err := crypto.UnmarshalSecp256k1PublicKey(pubBytes)
 	if err != nil {

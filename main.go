@@ -36,7 +36,7 @@ var app = &cli.Command{
 
 var rootFlags = []cli.Flag{
 	&cli.StringFlag{
-		Name:        "node-key",
+		Name:        "node.key",
 		Usage:       "Node key (ENR)",
 		Value:       rootConfig.NodeKey,
 		Destination: &rootConfig.NodeKey,

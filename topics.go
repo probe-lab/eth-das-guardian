@@ -7,9 +7,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
 
-var (
-	GossipBeaconBlock = "/eth/%s/beacon_block/ssz_snappy"
-)
+var GossipBeaconBlock = "/eth/%s/beacon_block/ssz_snappy"
 
 func getMandatoryTopics(forkD string) []string {
 	return []string{
@@ -17,6 +15,7 @@ func getMandatoryTopics(forkD string) []string {
 	}
 }
 
+//lint:ignore U1000 ignore this, keeping it just in case!
 func dummyHandler(ctx context.Context, msg *pubsub.Message) error {
 	prettyLogrusFields("new message", map[string]any{
 		"topic": msg.Topic,

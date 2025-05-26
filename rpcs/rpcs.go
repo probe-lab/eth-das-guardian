@@ -15,7 +15,6 @@ import (
 	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p"
 	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/encoder"
 	"github.com/OffchainLabs/prysm/v6/beacon-chain/sync"
-	psync "github.com/OffchainLabs/prysm/v6/beacon-chain/sync"
 	"github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
 	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 )
@@ -202,12 +201,12 @@ func (r *ReqResp) readChunkedBlock(stream core.Stream, encoding encoder.NetworkE
 // readFirstChunkedBlock reads the first chunked block and applies the appropriate deadlines to it.
 func (r *ReqResp) readFirstChunkedBlock(stream core.Stream, encoding encoder.NetworkEncoding) (*pb.SignedBeaconBlockContentsElectra, error) {
 	// read status
-	code, errMsg, err := psync.ReadStatusCode(stream, encoding)
+	code, errMsg, err := sync.ReadStatusCode(stream, encoding)
 	if err != nil {
 		return nil, err
 	}
 	if code != 0 {
-		return nil, fmt.Errorf(errMsg)
+		return nil, fmt.Errorf("read RPC status errored %s", errMsg)
 	}
 	// set deadline for reading from stream
 	if err = stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
@@ -222,14 +221,13 @@ func (r *ReqResp) readResponseChunk(stream core.Stream, encoding encoder.Network
 	if err := stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
 		return nil, fmt.Errorf("failed setting write deadline on stream: %w", err)
 	}
-	code, errMsg, err := psync.ReadStatusCode(stream, encoding)
+	code, errMsg, err := sync.ReadStatusCode(stream, encoding)
 	if err != nil {
 		return nil, err
 	}
 	if code != 0 {
-		return nil, fmt.Errorf(errMsg)
+		return nil, fmt.Errorf("read RPC status errored %s", errMsg)
 	}
-
 	return r.decodeElectraBlock(encoding, stream)
 }
 
@@ -302,7 +300,8 @@ func readChunkedDataColumnSideCar(
 	stream network.Stream,
 	encoding encoder.NetworkEncoding,
 	forkDigest []byte,
-	//validation any, // TODO: to validate blob column
+	// validation any, // TODO: to validate blob column
+
 ) (*pb.DataColumnSidecar, error) {
 	// Read the status code from the stream.
 	statusCode, errMessage, err := sync.ReadStatusCode(stream, encoding)

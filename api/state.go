@@ -8,9 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-var (
-	BeaconStateBase = "eth/v2/debug/beacon/states/head"
-)
+var BeaconStateBase = "eth/v2/debug/beacon/states/head"
 
 type PeerDASstate struct {
 	Version             string              `json:"version"`
