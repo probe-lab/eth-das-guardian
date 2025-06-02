@@ -272,10 +272,16 @@ func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) error {
 
 	// exchange beacon-status
 	remoteStatus := g.requestBeaconStatus(ctx, enodeAddr.ID)
+	if remoteStatus == nil {
+		return fmt.Errorf("failed to get beacon status from peer %s", enodeAddr.ID)
+	}
 	statusLogs := g.visualizeBeaconStatus(remoteStatus)
 
 	// exchange beacon-metadata
 	remoteMetadata := g.requestBeaconMetadata(ctx, enodeAddr.ID)
+	if remoteMetadata == nil {
+		return fmt.Errorf("failed to get beacon metadata from peer %s", enodeAddr.ID)
+	}
 	metadataLogs := g.visualizeBeaconMetadata(remoteMetadata)
 	metadataCustodyIdxs, err := CustodyColumnsSlice(ethNode.ID(), remoteMetadata.CustodyGroupCount, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
 	if err != nil {
@@ -291,7 +297,7 @@ func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) error {
 
 	// compare enr custody to metadata one
 	if enrCustody != remoteMetadata.CustodyGroupCount {
-		log.Warn("enr custody (%d) mismatches metadata RPC one (%d)", enrCustody, remoteMetadata.CustodyGroupCount)
+		log.Warnf("enr custody (%d) mismatches metadata RPC one (%d)", enrCustody, remoteMetadata.CustodyGroupCount)
 	}
 
 	prettyLogrusFields("scanning eth-node...", map[string]any{
@@ -509,15 +515,34 @@ func (g *DasGuardian) selectRandomSlotsForRange(headSlot uint64, bins uint64, ma
 
 func (g *DasGuardian) randomItemsForRange(bins uint64, maxValue uint64) []uint64 {
 	// return a random slot in between the given ranges rand(CUSTODY_SLOTS, HEAD, bins )
+
+	// Handle edge cases
+	if bins == 0 || maxValue == 0 {
+		return []uint64{}
+	}
+
+	// Ensure we have at least 1 item per bin
 	binSize := maxValue / bins
+	if binSize == 0 {
+		binSize = 1
+	}
+
 	randomSample := func(max, min uint64) uint64 {
+		if max <= min {
+			return min
+		}
 		in := int64(min)
 		ax := int64(max)
 		return uint64(mrand.Int63n(ax-in) + in)
 	}
+
 	var samples []uint64
-	for minValue := uint64(1); len(samples) < int(bins); minValue = minValue + binSize {
-		s := randomSample(minValue+binSize, minValue)
+	for minValue := uint64(1); len(samples) < int(bins) && minValue < maxValue; minValue = minValue + binSize {
+		maxForBin := minValue + binSize
+		if maxForBin > maxValue {
+			maxForBin = maxValue
+		}
+		s := randomSample(maxForBin, minValue)
 		samples = append(samples, s)
 	}
 	return samples
