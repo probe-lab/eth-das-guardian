@@ -17,7 +17,7 @@ It can extract and present all available information for a given [ENR](https://g
 
 ## Supported Networks
 
-This experimental version of the tool is compatible with existing PeerDAS devnets. It has been tested and confirmed to work with `peer-das-devnet-7`.
+This experimental version of the tool is compatible with existing PeerDAS devnets. It has been tested and confirmed to work with `peerdas-devnet-7`.
 
 More details available at:
 - EF's [devnet-7 dashboard](https://peerdas-devnet-7.ethpandaops.io/)
