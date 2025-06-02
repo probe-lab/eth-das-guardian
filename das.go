@@ -66,7 +66,7 @@ const (
 	ApiStateTimeout     = 30 * time.Second
 	ApiQueryTimeout     = 10 * time.Second
 
-	Samples      = uint64(4)
+	Samples      = uint64(8)
 	CustodySlots = uint64(4096 * 16)
 )
 

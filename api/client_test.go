@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	localAvailTestIP = "https://beacon.peerdas-devnet-7.ethpandaops.io/"
+	localAvailTestIP = "https://beacon.fusaka-devnet-0.ethpandaops.io/"
 	StateTimeout     = 30 * time.Second
 	QueryTimeout     = 10 * time.Second
 )
