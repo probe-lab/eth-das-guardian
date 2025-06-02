@@ -17,6 +17,8 @@ var rootConfig = struct {
 	BeaconAPIendpoint string
 	ConnectionRetries int
 	ConnectionTimeout time.Duration
+	WebPort           int
+	WebMode           bool
 }{
 	NodeKey:           "",
 	Libp2pHost:        "127.0.0.1",
@@ -24,11 +26,13 @@ var rootConfig = struct {
 	BeaconAPIendpoint: "http://127.0.0.1:5052/",
 	ConnectionRetries: 3,
 	ConnectionTimeout: 30 * time.Second,
+	WebPort:           8080,
+	WebMode:           false,
 }
 
 var app = &cli.Command{
 	Name:                  "das-guardian",
-	Usage:                 "An ethereum DAS custody checker",
+	Usage:                 "An Ethereum DAS custody checker with CLI and Web UI modes",
 	EnableShellCompletion: true,
 	Action:                guardianAction,
 	Flags:                 rootFlags,
@@ -71,9 +75,28 @@ var rootFlags = []cli.Flag{
 		Value:       rootConfig.ConnectionTimeout,
 		Destination: &rootConfig.ConnectionTimeout,
 	},
+	&cli.IntFlag{
+		Name:        "web.port",
+		Usage:       "Port for the web server",
+		Value:       rootConfig.WebPort,
+		Destination: &rootConfig.WebPort,
+	},
+	&cli.BoolFlag{
+		Name:        "web.mode",
+		Usage:       "Enable web server mode",
+		Destination: &rootConfig.WebMode,
+	},
 }
 
 func guardianAction(ctx context.Context, cmd *cli.Command) error {
+	if rootConfig.WebMode {
+		log.WithFields(log.Fields{
+			"web-port": rootConfig.WebPort,
+		}).Info("starting eth-das-guardian web server")
+		startWebServer(rootConfig.WebPort)
+		return nil
+	}
+
 	log.WithFields(log.Fields{
 		"beacon-api":         rootConfig.BeaconAPIendpoint,
 		"node-key":           truncateStr(rootConfig.NodeKey, 24),
