@@ -17,6 +17,7 @@ var rootConfig = struct {
 	BeaconAPIendpoint string
 	ConnectionRetries int
 	ConnectionTimeout time.Duration
+	WaitForFulu       bool
 }{
 	NodeKey:           "",
 	Libp2pHost:        "127.0.0.1",
@@ -24,6 +25,7 @@ var rootConfig = struct {
 	BeaconAPIendpoint: "http://127.0.0.1:5052/",
 	ConnectionRetries: 3,
 	ConnectionTimeout: 30 * time.Second,
+	WaitForFulu:       true,
 }
 
 var app = &cli.Command{
@@ -71,16 +73,23 @@ var rootFlags = []cli.Flag{
 		Value:       rootConfig.ConnectionTimeout,
 		Destination: &rootConfig.ConnectionTimeout,
 	},
+	&cli.BoolFlag{
+		Name:        "wait.fulu",
+		Usage:       "Timeout for the connection attempt to the node",
+		Value:       rootConfig.WaitForFulu,
+		Destination: &rootConfig.WaitForFulu,
+	},
 }
 
 func guardianAction(ctx context.Context, cmd *cli.Command) error {
 	log.WithFields(log.Fields{
 		"beacon-api":         rootConfig.BeaconAPIendpoint,
-		"node-key":           truncateStr(rootConfig.NodeKey, 24),
+		"node-key":           rootConfig.NodeKey,
 		"libp2p-host":        rootConfig.Libp2pHost,
 		"libp2p-port":        rootConfig.Libp2pPort,
 		"connection-retries": rootConfig.ConnectionRetries,
 		"connection-timeout": rootConfig.ConnectionTimeout,
+		"wait-fulu":          rootConfig.WaitForFulu,
 	}).Info("running eth-das-guardian")
 
 	ethConfig := &DasGuardianConfig{
@@ -89,6 +98,7 @@ func guardianAction(ctx context.Context, cmd *cli.Command) error {
 		ConnectionRetries: rootConfig.ConnectionRetries,
 		ConnectionTimeout: rootConfig.ConnectionTimeout,
 		BeaconAPIendpoint: rootConfig.BeaconAPIendpoint,
+		WaitForFulu:       rootConfig.WaitForFulu,
 	}
 
 	guardian, err := NewDASGuardian(ctx, ethConfig)

@@ -65,9 +65,10 @@ const (
 	InitTimeout         = 10 * time.Second
 	ApiStateTimeout     = 30 * time.Second
 	ApiQueryTimeout     = 10 * time.Second
+	FuluSupportRetry    = 12 * time.Second // 1 slot
 
-	Samples      = uint64(4)
-	CustodySlots = uint64(4096 * 16)
+	Samples      = uint64(4)         // TODO: hardcoded
+	CustodySlots = uint64(4096 * 32) // default custody in the fulu specs
 )
 
 type DasGuardianConfig struct {
@@ -76,6 +77,7 @@ type DasGuardianConfig struct {
 	ConnectionRetries int
 	ConnectionTimeout time.Duration
 	BeaconAPIendpoint string
+	WaitForFulu       bool
 }
 
 func (c *DasGuardianConfig) NewPrivateKey() (*crypto.Secp256k1PrivateKey, error) {
@@ -202,6 +204,27 @@ func (g *DasGuardian) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if currentState.Version != "fulu" {
+		if g.cfg.WaitForFulu {
+			log.Warnf("network doesn't support fulu yet (slot: %d - %s)", currentState.Data.Slot, currentState.Version)
+			retryTicker := time.NewTicker(FuluSupportRetry)
+			for currentState.Version != "fulu" {
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("tooled closed without reaching fulu upgrade")
+
+				case <-retryTicker.C:
+					currentState, err = g.apiCli.GetPeerDASstate(ctx)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		} else {
+			return fmt.Errorf("network doesn't support fulu yet (slot: %d - %s)", currentState.Data.Slot, currentState.Version)
+		}
+	}
+
 	prettyLogrusFields("dowloaded beacon head-state", map[string]any{
 		"version":       currentState.Version,
 		"finalized":     currentState.Finalized,
@@ -499,6 +522,9 @@ func (g *DasGuardian) visualizeRandomSlots(slots []uint64) map[string]any {
 func (g *DasGuardian) selectRandomSlotsForRange(headSlot uint64, bins uint64, maxValue uint64) []uint64 {
 	if headSlot < maxValue {
 		maxValue = headSlot
+	}
+	if maxValue < bins {
+		bins = maxValue
 	}
 
 	items := g.randomItemsForRange(bins, maxValue)
