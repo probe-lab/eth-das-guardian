@@ -1,4 +1,4 @@
-package rpcs
+package dasguardian
 
 import (
 	"context"
