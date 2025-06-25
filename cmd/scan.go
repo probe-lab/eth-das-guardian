@@ -18,6 +18,14 @@ var scanConfig = struct {
 	ScanConcurrency: int32(4),
 }
 
+var cmdScan = &cli.Command{
+	Name:                  "scan",
+	Usage:                 "Connects and scans a given node for its custody and network status",
+	EnableShellCompletion: true,
+	Action:                scanAction,
+	Flags:                 scanFlags,
+}
+
 var scanFlags = []cli.Flag{
 	&cli.StringSliceFlag{
 		Name:        "scan.key",
@@ -31,14 +39,6 @@ var scanFlags = []cli.Flag{
 		Value:       scanConfig.ScanConcurrency,
 		Destination: &scanConfig.ScanConcurrency,
 	},
-}
-
-var cmdScan = &cli.Command{
-	Name:                  "scan",
-	Usage:                 "Connects and scans a given node for its custody and network status",
-	EnableShellCompletion: true,
-	Action:                scanAction,
-	Flags:                 scanFlags,
 }
 
 func scanAction(ctx context.Context, cmd *cli.Command) error {
@@ -72,7 +72,7 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		return res.TableVisualization()
+		return res.LogVisualization()
 
 	default:
 		ethNodes := make([]*enode.Node, len(scanConfig.NodeKeys))
@@ -94,7 +94,7 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 		}
 		// TODO: hardcoded visualization
 		for _, r := range res {
-			err = r.TableVisualization()
+			err = r.LogVisualization()
 			if err != nil {
 				log.Error(err)
 			}

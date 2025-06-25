@@ -14,7 +14,8 @@ type DASEvaluationResult struct {
 	Slots            []uint64
 	ColumnIdx        []uint64
 	DownloadedResult [][]string
-	ValidKzg         [][]bool
+	ValidKzg         [][]string
+	ValidColumn      [][]bool
 	ValidSlot        []bool
 	Error            error
 }
@@ -23,7 +24,7 @@ func evaluateColumnResponses(
 	nodeID string,
 	slots []uint64,
 	columnIdxs []uint64,
-	bBlocks []api.BeaconBlock,
+	bBlocks []*api.BeaconBlock,
 	cols [][]*pb.DataColumnSidecar,
 ) (DASEvaluationResult, error) {
 	dasEvalRes := DASEvaluationResult{
@@ -31,36 +32,43 @@ func evaluateColumnResponses(
 		Slots:            slots,
 		ColumnIdx:        columnIdxs,
 		DownloadedResult: make([][]string, len(slots)),
-		ValidKzg:         make([][]bool, len(slots)),
+		ValidKzg:         make([][]string, len(slots)),
+		ValidColumn:      make([][]bool, len(slots)),
 		ValidSlot:        make([]bool, len(slots)),
 	}
 
 	for s, _ := range slots {
 		downloaded := make([]string, len(columnIdxs))
-		validDownload := make([]bool, len(columnIdxs))
-		validKzg := make([]bool, len(columnIdxs))
+		validKzg := make([]string, len(columnIdxs))
+		validColumn := make([]bool, len(columnIdxs))
 		validSlot := true // true, unless something is not correct
 		defer func() {
 			dasEvalRes.DownloadedResult[s] = downloaded
 			dasEvalRes.ValidKzg[s] = validKzg
 			dasEvalRes.ValidSlot[s] = validSlot
+			dasEvalRes.ValidColumn[s] = validColumn
 		}()
 
 		// check if we could actually download anything from the
+		blobCount := 0
+		if bBlocks[s] != nil {
+			blobCount = len(bBlocks[s].Data.Message.Body.BlobKZGCommitments)
+		}
 		if len(cols[s]) == 0 {
 			//lint:ignore S1005 complaints all the time
 			for i := range columnIdxs {
-				downloaded[i] = fmt.Sprintf("0/%d", len(columnIdxs))
-				validDownload[i] = false
-				validKzg[i] = false
-
+				downloaded[i] = fmt.Sprintf("0/%d", blobCount)
+				validKzg[i] = fmt.Sprintf("0/%d", blobCount)
+				validColumn[i] = (blobCount == 0)
 			}
-			validSlot = false
-			log.Errorf(
-				"no data cols for slot (data-cols %d) (block %s)",
-				len(cols[s]),
-				bBlocks[s].Data.Message.Slot,
-			)
+			validSlot = (blobCount == 0)
+			if blobCount != 0 {
+				log.Errorf(
+					"no data cols for slot (downloaded data-cols %d) (block %s)",
+					len(cols[s]),
+					bBlocks[s].Data.Message.Slot,
+				)
+			}
 			continue
 		}
 
@@ -68,7 +76,7 @@ func evaluateColumnResponses(
 		slot, _ := strconv.Atoi(bBlocks[s].Data.Message.Slot)
 		if uint64(slot) != uint64(cols[s][0].SignedBlockHeader.Header.Slot) {
 			log.Warnf(
-				"slot (%d), block (%s) and col (%d) don't match",
+				"slot (%d), block (%s) and col-slot (%d) don't match",
 				slot,
 				bBlocks[s].Data.Message.Slot,
 				uint64(cols[s][0].SignedBlockHeader.Header.Slot),
@@ -78,20 +86,20 @@ func evaluateColumnResponses(
 
 		// check if the commitments match
 		for c, dataCol := range cols[s] {
-			bloclKzgCommitments := bBlocks[s].Data.Message.Body.BlobKZGCommitments
-			invalidCom := 0
+			blockKzgCommitments := bBlocks[s].Data.Message.Body.BlobKZGCommitments
+			validCom := 0
 			for _, colCom := range dataCol.KzgCommitments {
-				for _, kzgCom := range bloclKzgCommitments {
-					if matchingBytes(colCom, kzgCom[:]) {
-						validKzg[c] = true
-					} else {
-						validKzg[c] = false
-						validSlot = false
-						invalidCom++
+			kzgCheckLoop:
+				for _, kzgCom := range blockKzgCommitments {
+					if matchingBytes(colCom[:], kzgCom[:]) {
+						validCom++
+						break kzgCheckLoop
 					}
 				}
 			}
-			downloaded[c] = fmt.Sprintf("%d/%d", len(cols[s])/invalidCom, len(cols[s]))
+			validKzg[c] = fmt.Sprintf("%d/%d", validCom, len(blockKzgCommitments))
+			downloaded[c] = fmt.Sprintf("%d/%d", len(dataCol.KzgCommitments), len(blockKzgCommitments))
+			validColumn[c] = (len(blockKzgCommitments) == validCom)
 		}
 	}
 	// compose the table
@@ -112,7 +120,7 @@ func matchingBytes(org, to []byte) (equal bool) {
 	return true
 }
 
-func (res *DASEvaluationResult) TableVisualization() error {
+func (res *DASEvaluationResult) LogVisualization() error {
 	log.Info("DAS evaluation for", res.NodeID)
 	// we assume that both, the cols and the blocks are sorted
 	for s, slot := range res.Slots {
@@ -122,19 +130,21 @@ func (res *DASEvaluationResult) TableVisualization() error {
 			log.Warnf("slot (%d) valid (%t):\n", slot, res.ValidSlot[s])
 		}
 		for c, sum := range res.DownloadedResult[s] {
-			if countTrues(res.ValidKzg[s]) == len(res.ValidKzg[s]) {
+			if res.ValidColumn[s][c] {
 				log.Infof(
-					"col (%d) - data-cols(%s) / kzg(%d/%d)",
+					"slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
+					slot,
 					res.ColumnIdx[c],
 					sum,
-					countTrues(res.ValidKzg[s]), len(res.ValidKzg[s]),
+					res.ValidKzg[s][c],
 				)
 			} else {
 				log.Warnf(
-					"col (%d) - data-cols(%s) / kzg(%d/%d)",
+					"slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
+					slot,
 					res.ColumnIdx[c],
 					sum,
-					countTrues(res.ValidKzg[s]), len(res.ValidKzg[s]),
+					res.ValidKzg[s][c],
 				)
 			}
 		}

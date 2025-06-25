@@ -404,7 +404,7 @@ func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluat
 	randomSlots := g.selectRandomSlotsForRange(
 		uint64(remoteStatus.HeadSlot),
 		Samples,
-		CustodySlots,
+		CustodySlots, // TODO:limit to only Fulu supported
 	)
 	randomSlotsLogs := g.visualizeRandomSlots(randomSlots)
 	prettyLogrusFields("to request slot->blobs ...", randomSlotsLogs)
@@ -603,7 +603,8 @@ func (g *DasGuardian) selectRandomSlotsForRange(headSlot uint64, bins uint64, ma
 	randomSlots := make([]uint64, len(items))
 	for i, it := range items {
 		nextTarget := headSlot - it
-		if nextTarget > headSlot || nextTarget < (headSlot-CustodySlots) {
+		// sanity checks
+		if nextTarget > headSlot || int64(nextTarget) < (int64(headSlot)-int64(CustodySlots)) {
 			continue
 		}
 		randomSlots[i] = nextTarget
@@ -661,6 +662,7 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 		// make the request per each column
 		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, slot, columnIdxs)
 		if err != nil {
+			log.Error(err)
 			return dataColumns, err
 		}
 		dataColumns[s] = cols
@@ -680,17 +682,22 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 	return dataColumns, nil
 }
 
-func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]api.BeaconBlock, error) {
+func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]*api.BeaconBlock, error) {
 	log.WithFields(log.Fields{
 		"slots": slots,
 	}).Info("requesting slot-blocks from beacon API...")
-	blocks := make([]api.BeaconBlock, len(slots))
+	blocks := make([]*api.BeaconBlock, len(slots))
 	for i, slot := range slots {
 		b, err := g.apiCli.GetBeaconBlock(ctx, slot)
 		if err != nil {
 			return blocks, err
 		}
-		blocks[i] = b
+		if b.Data.Message.Slot == "" {
+			log.Warnf("block for slot %d was missing", slot)
+			blocks[i] = nil
+		} else {
+			blocks[i] = &b
+		}
 	}
 	return blocks, nil
 }
