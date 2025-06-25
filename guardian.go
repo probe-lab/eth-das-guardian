@@ -56,17 +56,17 @@ const (
 	PeerID          = "peer_id"
 	ProtocolVersion = "protocol_version"
 	// ethereum beacon status
-	ForkDigest     = "fork_digest"
-	FinalizedRoot  = "finalized_root"
-	FinalizedEpoch = "finalized_epoch"
-	HeadRoot       = "head_root"
-	HeadSlot       = "head_slot"
+	ForkDigest            = "fork_digest"
+	FinalizedRoot         = "finalized_root"
+	FinalizedEpoch        = "finalized_epoch"
+	HeadRoot              = "head_root"
+	HeadSlot              = "head_slot"
+	EarliestAvailableSlot = "earliest_available_slot"
 	// ethereum beacon metadata
 	SeqNumber         = "seq_number"
 	Attnets           = "attnets"
 	Syncnets          = "syncnets"
 	CustodyGroupCount = "custody_group_count"
-
 	// values
 	DataColumnSidecarSubnetCount = uint64(128)
 )
@@ -144,7 +144,7 @@ type DasGuardian struct {
 
 	// chain data
 	headState    *api.PeerDASstate
-	headStatus   pb.Status
+	headStatus   pb.StatusV2
 	headMetadata pb.MetaDataV2
 }
 
@@ -425,7 +425,7 @@ func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluat
 	// TODO: refactor the output of this into:
 	// - A common interface for the output
 	// - A set of desired output types: (json, struct, terminal output...)
-	return evaluateColumnResponses(ethNode.String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
+	return evaluateColumnResponses(ethNode.ID().String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
 }
 
 func (g *DasGuardian) subscribeToTopics(ctx context.Context, topics []string) error {
@@ -483,7 +483,7 @@ func (g *DasGuardian) libp2pPeerInfo(pid peer.ID) map[string]any {
 	return libp2pMetadata
 }
 
-func (g *DasGuardian) visualizeBeaconStatus(status *pb.Status) map[string]any {
+func (g *DasGuardian) visualizeBeaconStatus(status *pb.StatusV2) map[string]any {
 	statusInfo := make(map[string]any)
 	if status != nil {
 		statusInfo[ForkDigest] = fmt.Sprintf("0x%x", status.ForkDigest)
@@ -491,14 +491,15 @@ func (g *DasGuardian) visualizeBeaconStatus(status *pb.Status) map[string]any {
 		statusInfo[FinalizedRoot] = fmt.Sprintf("0x%x", status.FinalizedRoot)
 		statusInfo[HeadRoot] = fmt.Sprintf("0x%x", status.HeadRoot)
 		statusInfo[HeadSlot] = status.HeadSlot
+		statusInfo[EarliestAvailableSlot] = status.EarliestAvailableSlot
 	} else {
 		statusInfo["beacon-status"] = "errored"
 	}
 	return statusInfo
 }
 
-func (g *DasGuardian) requestBeaconStatus(ctx context.Context, pid peer.ID) *pb.Status {
-	status, err := g.rpcServ.Status(ctx, pid)
+func (g *DasGuardian) requestBeaconStatus(ctx context.Context, pid peer.ID) *pb.StatusV2 {
+	status, err := g.rpcServ.StatusV2(ctx, pid)
 	if err != nil {
 		log.Warnf("error requesting beacon-status - %s", err.Error())
 	}
@@ -526,14 +527,14 @@ func (g *DasGuardian) requestBeaconMetadata(ctx context.Context, pid peer.ID) *p
 	return metadata
 }
 
-func (g *DasGuardian) composeLocalBeaconStatus(state *api.PeerDASstate) (pb.Status, error) {
+func (g *DasGuardian) composeLocalBeaconStatus(state *api.PeerDASstate) (pb.StatusV2, error) {
 	// fork digest
 	forkDigest, err := computeForkDigest(
 		state.Data.Fork.CurrentVersion[:],
 		state.Data.GenesisValidatorsRoot[:],
 	)
 	if err != nil {
-		return pb.Status{}, err
+		return pb.StatusV2{}, err
 	}
 
 	// finalized
@@ -544,12 +545,13 @@ func (g *DasGuardian) composeLocalBeaconStatus(state *api.PeerDASstate) (pb.Stat
 	headRoot := bytesutil.ToBytes32(state.Data.LatestBlockHeader.StateRoot[:])
 	headSlot := primitives.Slot(state.Data.LatestBlockHeader.Slot)
 
-	return pb.Status{
-		ForkDigest:     forkDigest,
-		FinalizedRoot:  finalizedRoot[:],
-		FinalizedEpoch: finalizedEpoch,
-		HeadRoot:       headRoot[:],
-		HeadSlot:       headSlot,
+	return pb.StatusV2{
+		ForkDigest:            forkDigest,
+		FinalizedRoot:         finalizedRoot[:],
+		FinalizedEpoch:        finalizedEpoch,
+		HeadRoot:              headRoot[:],
+		HeadSlot:              headSlot,
+		EarliestAvailableSlot: headSlot,
 	}, nil
 }
 

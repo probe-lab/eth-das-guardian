@@ -3,7 +3,6 @@ package dasguardian
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 	"github.com/probe-lab/eth-das-guardian/api"
@@ -57,10 +56,10 @@ func evaluateColumnResponses(
 
 			}
 			validSlot = false
-			log.Error(
-				"no data cols for slot (data-cols %d) (block %d)",
-				bBlocks[s].Data.Message.Body.BlobKZGCommitments,
+			log.Errorf(
+				"no data cols for slot (data-cols %d) (block %s)",
 				len(cols[s]),
+				bBlocks[s].Data.Message.Slot,
 			)
 			continue
 		}
@@ -114,22 +113,31 @@ func matchingBytes(org, to []byte) (equal bool) {
 }
 
 func (res *DASEvaluationResult) TableVisualization() error {
-	fmt.Println("DAS evaluation for", res.NodeID)
+	log.Info("DAS evaluation for", res.NodeID)
 	// we assume that both, the cols and the blocks are sorted
 	for s, slot := range res.Slots {
-		fmt.Printf("slot (%d) valid (%b):\n", slot, res.ValidSlot[s])
-		var row strings.Builder
-		for _, sum := range res.DownloadedResult[s] {
-			_, err := row.WriteString(fmt.Sprintf(
-				"blobs(%s)/kzg(%s/%d)  ",
-				sum,
-				countTrues(res.ValidKzg[s]), len(res.ValidKzg[s]),
-			))
-			if err != nil {
-				log.Error(err)
+		if res.ValidSlot[s] {
+			log.Infof("slot (%d) valid (%t):\n", slot, res.ValidSlot[s])
+		} else {
+			log.Warnf("slot (%d) valid (%t):\n", slot, res.ValidSlot[s])
+		}
+		for c, sum := range res.DownloadedResult[s] {
+			if countTrues(res.ValidKzg[s]) == len(res.ValidKzg[s]) {
+				log.Infof(
+					"col (%d) - data-cols(%s) / kzg(%d/%d)",
+					res.ColumnIdx[c],
+					sum,
+					countTrues(res.ValidKzg[s]), len(res.ValidKzg[s]),
+				)
+			} else {
+				log.Warnf(
+					"col (%d) - data-cols(%s) / kzg(%d/%d)",
+					res.ColumnIdx[c],
+					sum,
+					countTrues(res.ValidKzg[s]), len(res.ValidKzg[s]),
+				)
 			}
 		}
-		fmt.Println(row)
 	}
 	// compose the table
 	return nil
