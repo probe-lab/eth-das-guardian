@@ -10,6 +10,7 @@ import (
 
 	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p"
 	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/encoder"
+	p2ptypes "github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/types"
 	"github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
 	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -19,9 +20,7 @@ import (
 )
 
 var (
-	RPCDataColumnsByRangeV1 = "/eth2/beacon_chain/req/data_column_sidecars_by_range/1"
-	RPCDataColumnsByRootV1  = "/eth2/beacon_chain/req/data_column_sidecars_by_root/1"
-	RPCMetaDataV3           = "/eth2/beacon_chain/req/metadata/3"
+	RPCStatusV2 = "/eth2/beacon_chain/req/status/2"
 )
 
 type ReqRespConfig struct {
@@ -30,7 +29,7 @@ type ReqRespConfig struct {
 	WriteTimeout time.Duration
 
 	// local metadata
-	BeaconStatus   pb.Status
+	BeaconStatus   pb.StatusV2
 	BeaconMetadata pb.MetaDataV2
 }
 
@@ -63,15 +62,15 @@ func (r *ReqResp) RegisterHandlers(ctx context.Context) error {
 		p2p.RPCStatusTopicV1:              r.dummyHandler,
 		p2p.RPCMetaDataTopicV1:            r.dummyHandler,
 		p2p.RPCMetaDataTopicV2:            r.dummyHandler,
-		RPCMetaDataV3:                     r.dummyHandler,
+		p2p.RPCMetaDataTopicV3:            r.dummyHandler,
 		p2p.RPCBlocksByRootTopicV1:        r.dummyHandler,
 		p2p.RPCBlocksByRootTopicV2:        r.dummyHandler,
 		p2p.RPCBlocksByRangeTopicV1:       r.dummyHandler,
 		p2p.RPCBlocksByRangeTopicV2:       r.dummyHandler,
 		p2p.RPCBlobSidecarsByRangeTopicV1: r.dummyHandler,
 		p2p.RPCBlobSidecarsByRootTopicV1:  r.dummyHandler,
-		RPCDataColumnsByRangeV1:           r.dummyHandler,
-		RPCDataColumnsByRootV1:            r.dummyHandler,
+		p2p.DataColumnSidecarsByRangeName: r.dummyHandler,
+		p2p.DataColumnSidecarsByRootName:  r.dummyHandler,
 	}
 
 	for id, handler := range handlers {
@@ -210,11 +209,32 @@ func (r *ReqResp) goodbyeHandler(ctx context.Context, stream network.Stream) err
 	if err := r.readRequest(ctx, stream, &req); err != nil {
 		return fmt.Errorf("read sequence number: %w", err)
 	}
-	log.Warnf("received GoodBye from %s", stream.Conn().RemotePeer().String())
+	reason := ParseGoodByeReason(req)
+	log.WithFields(log.Fields{
+		"peer_id":  stream.Conn().RemotePeer().String(),
+		"err_code": req,
+		"reason":   reason,
+	}).Warnf("received GoodBye from %s", stream.Conn().RemotePeer().String())
 	return stream.Close()
+}
+
+func ParseGoodByeReason(num p2ptypes.RPCGoodbyeCode) string {
+	reason, ok := p2ptypes.GoodbyeCodeMessages[num]
+	if ok {
+		return reason
+	}
+	return "unknown"
 }
 
 // Beacon Metadata
 func (r *ReqResp) dummyHandler(ctx context.Context, stream network.Stream) error {
+	// we should delay a little bit the the reset of the request
+	// this would give us some margin to request all the info that we want
+	select {
+	case <-time.After(5 * time.Second):
+		break
+	case <-ctx.Done():
+		break
+	}
 	return stream.Reset()
 }
