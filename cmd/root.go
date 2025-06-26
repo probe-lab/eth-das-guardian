@@ -33,6 +33,7 @@ var rootCmd = &cli.Command{
 	Flags:                 rootFlags,
 	Commands: []*cli.Command{
 		cmdScan,
+		cmdMonitor,
 	},
 }
 
