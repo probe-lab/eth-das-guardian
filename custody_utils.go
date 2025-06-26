@@ -2,6 +2,7 @@ package dasguardian
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"math"
 	"sort"
 
@@ -24,15 +25,47 @@ func (c CgcEntry) ENRKey() string {
 	return "cgc"
 }
 
-func GetCustodyFromEnr(ethNode *enode.Node) (custody uint64, err error) {
+func GetCustodyFromEnr(ethNode *enode.Node) (uint64, error) {
 	enr := ethNode.Record()
 
 	var custodyEntry CgcEntry
-	err = enr.Load(&custodyEntry)
+	err := enr.Load(&custodyEntry)
 	if err != nil {
-		return uint64(0), err
+		return uint64(0), errors.Wrap(err, "unable to get custody from enr")
 	}
 	return uint64(custodyEntry), nil
+}
+
+// attnets
+type AttnetsEntry []byte
+
+func (c AttnetsEntry) ENRKey() string { return "attnets" }
+
+func GetAttnetsFromEnr(ethNode *enode.Node) string {
+	enr := ethNode.Record()
+
+	var attnetsEntry AttnetsEntry
+	err := enr.Load(&attnetsEntry)
+	if err != nil {
+		return "no-attnets"
+	}
+	return "0x" + hex.EncodeToString(attnetsEntry)
+}
+
+// syncnets
+type SyncnetsEntry []byte
+
+func (c SyncnetsEntry) ENRKey() string { return "syncnets" }
+
+func GetSyncnetsFromEnr(ethNode *enode.Node) string {
+	enr := ethNode.Record()
+
+	var syncnetsEntry SyncnetsEntry
+	err := enr.Load(&syncnetsEntry)
+	if err != nil {
+		return "no-syncnets"
+	}
+	return "0x" + hex.EncodeToString(syncnetsEntry)
 }
 
 // Mainly from: prysm/beacon-chain/core/peerdas/helpers.go
