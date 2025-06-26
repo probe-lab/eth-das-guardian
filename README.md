@@ -102,6 +102,13 @@ INFO[0005] node custody sampling done...                 duration=592.556056ms
 
 Note: This tool is a demonstration prototype for debugging CL nodes on devnets. The codebase is experimental — please be gentle regarding its current style and implementation.
 
+## TODOs:
+- [ ] structure code on right packages
+- [ ] make interface to evaluate the results
+- [ ] make logic to limit requested slots for fulu-only slots
+- [ ] add nebula logic
+- [ ] 
+
 ## Maintainers
 
 [@cortze](https://github.com/cortze) from [@probe-lab](https://github.com/probe-lab)

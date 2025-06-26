@@ -1,4 +1,4 @@
-package main
+package dasguardian
 
 import (
 	"crypto/elliptic"
@@ -7,15 +7,15 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
-func parseNode(rawEnr string) (*enode.Node, error) {
+func ParseNode(rawEnr string) (*enode.Node, error) {
 	// check first if the key is a ENR
 	return enode.Parse(enode.ValidSchemes, rawEnr)
 }
 
-func parseMaddrFromEnode(ethNode *enode.Node) (*peer.AddrInfo, error) {
+func ParseMaddrFromEnode(ethNode *enode.Node) (*peer.AddrInfo, error) {
 	// TODO: only working with IPv4 for now
 	ipv4 := ethNode.IP()
 	port := ethNode.TCP()
@@ -24,7 +24,7 @@ func parseMaddrFromEnode(ethNode *enode.Node) (*peer.AddrInfo, error) {
 		return nil, err
 	}
 
-	maddr, err := multiaddr.NewMultiaddr(
+	maddr, err := ma.NewMultiaddr(
 		fmt.Sprintf(
 			"/ip4/%s/tcp/%d",
 			ipv4,
@@ -33,7 +33,7 @@ func parseMaddrFromEnode(ethNode *enode.Node) (*peer.AddrInfo, error) {
 	)
 	return &peer.AddrInfo{
 		ID:    *peerID,
-		Addrs: []multiaddr.Multiaddr{maddr},
+		Addrs: []ma.Multiaddr{maddr},
 	}, err
 }
 
