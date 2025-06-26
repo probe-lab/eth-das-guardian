@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	localAvailTestIP = "https://beacon.peerdas-devnet-7.ethpandaops.io/"
+	localAvailTestIP = "https://beacon.berlinterop-devnet-2.ethpandaops.io/"
 	StateTimeout     = 30 * time.Second
 	QueryTimeout     = 10 * time.Second
 )
@@ -45,6 +45,22 @@ func Test_ApiGetForkChoice(t *testing.T) {
 	defer cancel()
 
 	_, err := httpCli.GetForkChoice(testMainCtx)
+	require.NoError(t, err)
+}
+
+func Test_ApiGetNetworkConfig(t *testing.T) {
+	httpCli, testMainCtx, cancel := genTestAPICli(t)
+	defer cancel()
+
+	_, err := httpCli.GetNetworkConfig(testMainCtx)
+	require.NoError(t, err)
+}
+
+func Test_ApiGetNodeIdentity(t *testing.T) {
+	httpCli, testMainCtx, cancel := genTestAPICli(t)
+	defer cancel()
+
+	_, err := httpCli.GetNodeIdentity(testMainCtx)
 	require.NoError(t, err)
 }
 
