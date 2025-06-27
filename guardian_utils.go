@@ -36,10 +36,7 @@ func visualizeRandomSlots(slots []uint64) map[string]any {
 	return slotInfo
 }
 
-func selectRandomSlotsForRange(headSlot uint64, bins uint64, maxValue uint64) []uint64 {
-	if headSlot < maxValue {
-		maxValue = headSlot
-	}
+func selectRandomSlotsForRange(headSlot int64, bins int64, maxValue int64) []uint64 {
 	if maxValue < bins {
 		bins = maxValue
 	}
@@ -49,20 +46,20 @@ func selectRandomSlotsForRange(headSlot uint64, bins uint64, maxValue uint64) []
 	for i, it := range items {
 		nextTarget := headSlot - it
 		// sanity checks
-		if nextTarget > headSlot || int64(nextTarget) < (int64(headSlot)-int64(CustodySlots)) {
+		if nextTarget > headSlot || nextTarget < (headSlot-maxValue) {
 			continue
 		}
-		randomSlots[i] = nextTarget
+		randomSlots[i] = uint64(nextTarget)
 	}
 	return randomSlots
 }
 
-func randomItemsForRange(bins uint64, maxValue uint64) []uint64 {
+func randomItemsForRange(bins int64, maxValue int64) []int64 {
 	// return a random slot in between the given ranges rand(CUSTODY_SLOTS, HEAD, bins )
 
 	// Handle edge cases
 	if bins == 0 || maxValue == 0 {
-		return []uint64{}
+		return []int64{}
 	}
 
 	// Ensure we have at least 1 item per bin
@@ -71,17 +68,17 @@ func randomItemsForRange(bins uint64, maxValue uint64) []uint64 {
 		binSize = 1
 	}
 
-	randomSample := func(max, min uint64) uint64 {
+	randomSample := func(max, min int64) int64 {
 		if max <= min {
 			return min
 		}
 		in := int64(min)
 		ax := int64(max)
-		return uint64(mrand.Int63n(ax-in) + in)
+		return mrand.Int63n(ax-in) + in
 	}
 
-	var samples []uint64
-	for minValue := uint64(1); len(samples) < int(bins) && minValue < maxValue; minValue = minValue + binSize {
+	var samples []int64
+	for minValue := int64(1); len(samples) < int(bins) && minValue < maxValue; minValue = minValue + binSize {
 		maxForBin := minValue + binSize
 		if maxForBin > maxValue {
 			maxForBin = maxValue

@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -38,7 +39,6 @@ import (
 
 const (
 	Libp2pConnGraceTime = 30 * time.Second
-	InitTimeout         = 10 * time.Second
 	ApiStateTimeout     = 30 * time.Second
 	ApiQueryTimeout     = 10 * time.Second
 	FuluSupportRetry    = 12 * time.Second // 1 slot
@@ -78,6 +78,7 @@ type DasGuardianConfig struct {
 	ConnectionTimeout time.Duration
 	BeaconAPIendpoint string
 	WaitForFulu       bool
+	InitTimeout       time.Duration
 }
 
 func (c *DasGuardianConfig) NewPrivateKey() (*crypto.Secp256k1PrivateKey, error) {
@@ -187,7 +188,7 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 		apiCli: apiCli,
 	}
 
-	initCtx, initCancel := context.WithTimeout(ctx, InitTimeout)
+	initCtx, initCancel := context.WithTimeout(ctx, cfg.InitTimeout)
 	defer initCancel()
 	if err := guardian.init(initCtx); err != nil {
 		return nil, err
@@ -215,25 +216,37 @@ func (g *DasGuardian) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if currentState.Version != "fulu" {
-		if g.cfg.WaitForFulu {
-			log.Warnf("network doesn't support fulu yet (slot: %d - %s)", currentState.Data.Slot, currentState.Version)
-			retryTicker := time.NewTicker(FuluSupportRetry)
-			for currentState.Version != "fulu" {
-				select {
-				case <-ctx.Done():
-					return fmt.Errorf("tooled closed without reaching fulu upgrade")
 
-				case <-retryTicker.C:
-					currentState, err = g.apiCli.GetPeerDASstate(ctx)
-					if err != nil {
-						return err
-					}
+	fuluForkEpoch, err := strconv.Atoi(g.forkSchedules.Epoch)
+	if err != nil {
+		return err
+	}
+	if (int(currentState.Data.Slot) / 32) < fuluForkEpoch {
+		secondsToFulu := time.Duration(((fuluForkEpoch*32)-int(currentState.Data.Slot))*12) * time.Second
+		log.Warnf("network doesn't support fulu yet")
+		log.Warnf("current: (slot: %d epoch: %d - version: %s)", currentState.Data.Slot, (currentState.Data.Slot / 32), currentState.Version)
+		log.Warnf("target:  (slot: %d epoch: %d - missing: %d = %s)", fuluForkEpoch*32, fuluForkEpoch, (fuluForkEpoch*32)-int(currentState.Data.Slot), secondsToFulu)
+		if g.cfg.WaitForFulu {
+			log.Info("waiting for ", secondsToFulu)
+			if secondsToFulu < 0 {
+				return fmt.Errorf("neg time to fulu?!")
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("tooled closed without reaching fulu upgrade")
+
+			case <-time.After(secondsToFulu):
+				currentState, err = g.apiCli.GetPeerDASstate(ctx)
+				if err != nil {
+					return err
 				}
 			}
 		} else {
 			return fmt.Errorf("network doesn't support fulu yet (slot: %d - %s)", currentState.Data.Slot, currentState.Version)
 		}
+	} else {
+		log.Info("fulu is supported")
+		fmt.Sprintln((int(currentState.Data.Slot) / 32), fuluForkEpoch)
 	}
 
 	prettyLogrusFields("dowloaded beacon head-state", map[string]any{
@@ -379,12 +392,6 @@ func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluat
 	libp2pInfo["ping_rtt"] = time.Since(startT)
 	prettyLogrusFields("libp2p info...", libp2pInfo)
 
-	// TODO: this is temp, remove it
-	select {
-	case <-ctx.Done():
-	case <-time.After(5 * time.Second):
-	}
-
 	// exchange beacon-status
 	remoteStatus := g.requestBeaconStatus(ctx, enodeAddr.ID)
 	if remoteStatus == nil {
@@ -418,10 +425,19 @@ func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluat
 	prettyLogrusFields("beacon metadata...", metadataLogs)
 
 	// select the random slots to sample
+	// limit to only Fulu supported
+	custSlots := int64(CustodySlots)
+	fuluForkEpoch, err := strconv.Atoi(g.forkSchedules.Epoch)
+	if err != nil {
+		log.Error("convert fork-schedule epoch to int - ", err)
+	}
+	if (int64(remoteStatus.HeadSlot) - int64(CustodySlots)) <= int64((fuluForkEpoch * 32)) {
+		custSlots = int64(remoteStatus.HeadSlot) - int64(fuluForkEpoch*32)
+	}
 	randomSlots := selectRandomSlotsForRange(
-		uint64(remoteStatus.HeadSlot),
-		Samples,
-		CustodySlots, // TODO:limit to only Fulu supported
+		int64(remoteStatus.HeadSlot),
+		int64(Samples),
+		custSlots,
 	)
 	randomSlotsLogs := visualizeRandomSlots(randomSlots)
 	prettyLogrusFields("to request slot->blobs ...", randomSlotsLogs)
@@ -443,7 +459,20 @@ func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluat
 }
 
 func (g *DasGuardian) MonitorEndpoint(ctx context.Context) error {
-	return g.monitorEndpoint(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+
+		case <-time.After(12 * time.Second):
+			log.Info("monitoring node...")
+			err := g.monitorEndpoint(ctx)
+			if err != nil {
+				return err
+			}
+		}
+
+	}
 }
 
 func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
@@ -472,10 +501,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	apiCustody, err := nodeInfo.CustodyInt()
-	if err != nil {
-		return err
-	}
+	apiCustody, _ := nodeInfo.CustodyInt()
 	if enrCustody != uint64(apiCustody) {
 		log.WithFields(log.Fields{
 			"enr": enrCustody,
@@ -515,6 +541,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	if len(invalidSlots) > 0 {
 		return fmt.Errorf("remote node didn't provide complete data-columns for slots %v", invalidSlots)
 	}
+	log.Info("node monitoring done")
 	return nil
 }
 

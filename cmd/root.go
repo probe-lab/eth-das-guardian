@@ -16,6 +16,7 @@ var rootConfig = struct {
 	BeaconAPIendpoint string
 	ConnectionRetries int
 	ConnectionTimeout time.Duration
+	InitTimeout       time.Duration
 	WaitForFulu       bool
 }{
 	Libp2pHost:        "127.0.0.1",
@@ -23,6 +24,7 @@ var rootConfig = struct {
 	BeaconAPIendpoint: "http://127.0.0.1:5052/",
 	ConnectionRetries: 3,
 	ConnectionTimeout: 30 * time.Second,
+	InitTimeout:       30 * time.Second,
 	WaitForFulu:       true,
 }
 
@@ -68,6 +70,12 @@ var rootFlags = []cli.Flag{
 		Value:       rootConfig.ConnectionTimeout,
 		Destination: &rootConfig.ConnectionTimeout,
 	},
+	&cli.DurationFlag{
+		Name:        "init.timeout",
+		Usage:       "Timeout to limit the time it can take the guardian to init itself",
+		Value:       rootConfig.InitTimeout,
+		Destination: &rootConfig.InitTimeout,
+	},
 	&cli.BoolFlag{
 		Name:        "wait.fulu",
 		Usage:       "The guardian command will wait until fulu hardfork has happened before proceeding to test the custody",
@@ -83,6 +91,7 @@ func main() {
 		"libp2p-port":        rootConfig.Libp2pPort,
 		"connection-retries": rootConfig.ConnectionRetries,
 		"connection-timeout": rootConfig.ConnectionTimeout,
+		"init-timeout":       rootConfig.InitTimeout,
 		"wait-fulu":          rootConfig.WaitForFulu,
 	}).Info("running das-guardian")
 

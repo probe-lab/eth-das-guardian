@@ -53,6 +53,7 @@ func monitorAction(ctx context.Context, cmd *cli.Command) error {
 		ConnectionTimeout: rootConfig.ConnectionTimeout,
 		BeaconAPIendpoint: rootConfig.BeaconAPIendpoint,
 		WaitForFulu:       rootConfig.WaitForFulu,
+		InitTimeout:       rootConfig.InitTimeout,
 	}
 
 	guardian, err := dasguardian.NewDASGuardian(ctx, ethConfig)
