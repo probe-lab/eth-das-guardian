@@ -73,7 +73,10 @@ func evaluateColumnResponses(
 		}
 
 		// check if the received columns match the requested ones
-		slot, _ := strconv.Atoi(bBlocks[s].Data.Message.Slot)
+		slot, err := strconv.Atoi(bBlocks[s].Data.Message.Slot)
+		if err != nil {
+			log.Error("convert msg-slot epoch to int - ", err)
+		}
 		if uint64(slot) != uint64(cols[s][0].SignedBlockHeader.Header.Slot) {
 			log.Warnf(
 				"slot (%d), block (%s) and col-slot (%d) don't match",
