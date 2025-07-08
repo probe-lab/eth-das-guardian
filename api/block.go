@@ -33,7 +33,7 @@ func (c *Client) GetBeaconBlock(ctx context.Context, slot uint64) (BeaconBlock, 
 	var beaconBlock BeaconBlock
 	resp, err := c.get(ctx, c.cfg.QueryTimeout, fmt.Sprintf(BlockBase, slot), "")
 	if err != nil {
-		return beaconBlock, errors.Wrap(err, "requesting fork-choice")
+		return beaconBlock, errors.Wrap(err, "requesting beacon-block")
 	}
 	err = json.Unmarshal(resp, &beaconBlock)
 	if err != nil {

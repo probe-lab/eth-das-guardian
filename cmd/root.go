@@ -2,49 +2,48 @@ package main
 
 import (
 	"context"
-	"errors"
 	"os"
 	"time"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	cli "github.com/urfave/cli/v3"
+	"github.com/urfave/cli/v3"
 )
 
 var rootConfig = struct {
-	NodeKey           string
 	Libp2pHost        string
 	Libp2pPort        int
 	BeaconAPIendpoint string
 	ConnectionRetries int
 	ConnectionTimeout time.Duration
+	InitTimeout       time.Duration
+	WaitForFulu       bool
 	WebPort           int
 	WebMode           bool
 }{
-	NodeKey:           "",
 	Libp2pHost:        "127.0.0.1",
 	Libp2pPort:        9013,
 	BeaconAPIendpoint: "http://127.0.0.1:5052/",
 	ConnectionRetries: 3,
 	ConnectionTimeout: 30 * time.Second,
+	InitTimeout:       30 * time.Second,
+	WaitForFulu:       true,
 	WebPort:           8080,
 	WebMode:           false,
 }
 
-var app = &cli.Command{
+var rootCmd = &cli.Command{
 	Name:                  "das-guardian",
 	Usage:                 "An Ethereum DAS custody checker with CLI and Web UI modes",
 	EnableShellCompletion: true,
-	Action:                guardianAction,
 	Flags:                 rootFlags,
+	Commands: []*cli.Command{
+		cmdScan,
+		cmdMonitor,
+	},
 }
 
 var rootFlags = []cli.Flag{
-	&cli.StringFlag{
-		Name:        "node.key",
-		Usage:       "ENR entry of the node we want to probe",
-		Value:       rootConfig.NodeKey,
-		Destination: &rootConfig.NodeKey,
-	},
 	&cli.StringFlag{
 		Name:        "libp2p.host",
 		Usage:       "IP for the Libp2p host",
@@ -75,6 +74,18 @@ var rootFlags = []cli.Flag{
 		Value:       rootConfig.ConnectionTimeout,
 		Destination: &rootConfig.ConnectionTimeout,
 	},
+	&cli.DurationFlag{
+		Name:        "init.timeout",
+		Usage:       "Timeout to limit the time it can take the guardian to init itself",
+		Value:       rootConfig.InitTimeout,
+		Destination: &rootConfig.InitTimeout,
+	},
+	&cli.BoolFlag{
+		Name:        "wait.fulu",
+		Usage:       "The guardian command will wait until fulu hardfork has happened before proceeding to test the custody",
+		Value:       rootConfig.WaitForFulu,
+		Destination: &rootConfig.WaitForFulu,
+	},
 	&cli.IntFlag{
 		Name:        "web.port",
 		Usage:       "Port for the web server",
@@ -97,46 +108,25 @@ func guardianAction(ctx context.Context, cmd *cli.Command) error {
 		return nil
 	}
 
+func main() {
 	log.WithFields(log.Fields{
 		"beacon-api":         rootConfig.BeaconAPIendpoint,
-		"node-key":           truncateStr(rootConfig.NodeKey, 24),
 		"libp2p-host":        rootConfig.Libp2pHost,
 		"libp2p-port":        rootConfig.Libp2pPort,
 		"connection-retries": rootConfig.ConnectionRetries,
 		"connection-timeout": rootConfig.ConnectionTimeout,
-	}).Info("running eth-das-guardian")
+		"init-timeout":       rootConfig.InitTimeout,
+		"wait-fulu":          rootConfig.WaitForFulu,
+		"web-port":           rootConfig.WebPort,
+		"web-mode":           rootConfig.WebMode,
+	}).Info("running das-guardian")
 
-	ethConfig := &DasGuardianConfig{
-		Libp2pHost:        rootConfig.Libp2pHost,
-		Libp2pPort:        rootConfig.Libp2pPort,
-		ConnectionRetries: rootConfig.ConnectionRetries,
-		ConnectionTimeout: rootConfig.ConnectionTimeout,
-		BeaconAPIendpoint: rootConfig.BeaconAPIendpoint,
-	}
-
-	guardian, err := NewDASGuardian(ctx, ethConfig)
-	if err != nil {
-		return err
-	}
-
-	// compose the network target for the peer
-	ethNode, err := parseNode(rootConfig.NodeKey)
-	if err != nil {
-		return err
-	}
-
-	return guardian.Scan(
-		ctx,
-		ethNode,
-	)
-}
-
-func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := app.Run(ctx, os.Args); err != nil && !errors.Is(err, context.Canceled) {
+	if err := rootCmd.Run(ctx, os.Args); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error(err)
 		os.Exit(1)
 	}
+	os.Exit(0)
 }
