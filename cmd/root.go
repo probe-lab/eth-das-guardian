@@ -106,7 +106,7 @@ func guardianAction(ctx context.Context, cmd *cli.Command) error {
 		log.WithFields(log.Fields{
 			"web-port": rootConfig.WebPort,
 		}).Info("starting eth-das-guardian web server")
-		dasguardian.StartWebServer(rootConfig.WebPort)
+		dasguardian.StartWebServerWithEndpoint(rootConfig.WebPort, rootConfig.BeaconAPIendpoint)
 		return nil
 	}
 	return nil

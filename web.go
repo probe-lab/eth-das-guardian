@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,10 +40,68 @@ type WebScanResponse struct {
 	Duration time.Duration    `json:"duration"`
 }
 
+var defaultBeaconEndpoint string
+var defaultENR string
+
+type BeaconNodeIdentity struct {
+	Data struct {
+		PeerID string `json:"peer_id"`
+		ENR    string `json:"enr"`
+	} `json:"data"`
+}
+
+func fetchBeaconENR(beaconEndpoint string) (string, error) {
+	if !strings.HasSuffix(beaconEndpoint, "/") {
+		beaconEndpoint += "/"
+	}
+	
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	resp, err := client.Get(beaconEndpoint + "eth/v1/node/identity")
+	if err != nil {
+		log.Warnf("Failed to fetch beacon node identity: %v", err)
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Warnf("Beacon node identity request failed with status: %d", resp.StatusCode)
+		return "", fmt.Errorf("request failed with status %d", resp.StatusCode)
+	}
+
+	var identity BeaconNodeIdentity
+	if err := json.NewDecoder(resp.Body).Decode(&identity); err != nil {
+		log.Warnf("Failed to decode beacon node identity: %v", err)
+		return "", err
+	}
+
+	return identity.Data.ENR, nil
+}
+
 func StartWebServer(port int) {
+	StartWebServerWithEndpoint(port, "")
+}
+
+func StartWebServerWithEndpoint(port int, beaconEndpoint string) {
+	if beaconEndpoint != "" {
+		defaultBeaconEndpoint = beaconEndpoint
+		// Try to fetch ENR from the beacon node
+		if enr, err := fetchBeaconENR(beaconEndpoint); err == nil {
+			defaultENR = enr
+			log.Infof("Fetched beacon node ENR: %s", truncateStr(enr, 50))
+		} else {
+			log.Warnf("Could not fetch beacon node ENR, using empty default")
+			defaultENR = ""
+		}
+	} else {
+		defaultBeaconEndpoint = "https://beacon.fusaka-devnet-0.ethpandaops.io/"
+		defaultENR = ""
+	}
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/scan", handleScan)
 	http.HandleFunc("/api/scan", handleAPIScan)
+	http.HandleFunc("/api/fetch-enr", handleFetchENR)
 
 	log.Infof("Starting web server on port %d", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
@@ -54,30 +113,125 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 <head>
     <title>Eth DAS Guardian Web UI</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background-color: #1a1a1a; 
+            color: #e0e0e0; 
+        }
         .container { max-width: 1200px; margin: 0 auto; }
         .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input[type="text"], textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        label { 
+            display: block; 
+            margin-bottom: 5px; 
+            font-weight: bold; 
+            color: #f0f0f0; 
+        }
+        input[type="text"], input[type="number"], textarea { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #444; 
+            border-radius: 4px; 
+            background-color: #2a2a2a; 
+            color: #e0e0e0; 
+        }
+        input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+            border-color: #007cba;
+            outline: none;
+            box-shadow: 0 0 5px rgba(0, 124, 186, 0.3);
+        }
         textarea { height: 120px; resize: vertical; }
-        button { background-color: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button { 
+            background-color: #007cba; 
+            color: white; 
+            padding: 10px 20px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            transition: background-color 0.2s;
+        }
         button:hover { background-color: #005a8a; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        button:disabled { background-color: #555; cursor: not-allowed; }
         .result { margin-top: 20px; }
-        .node-result { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 4px; }
+        .node-result { 
+            border: 1px solid #444; 
+            margin: 10px 0; 
+            padding: 15px; 
+            border-radius: 4px; 
+            background-color: #2a2a2a; 
+        }
         .node-result.success { border-color: #28a745; }
         .node-result.error { border-color: #dc3545; }
         .info-section { margin: 10px 0; }
-        .info-title { font-weight: bold; color: #007cba; margin-bottom: 5px; }
-        .info-content { background-color: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .loading { text-align: center; padding: 20px; }
-        .status { margin: 10px 0; padding: 10px; border-radius: 4px; }
-        .status.success { background-color: #d4edda; color: #155724; }
-        .status.error { background-color: #f8d7da; color: #721c24; }
-        .duration { font-size: 0.9em; color: #666; }
+        .info-title { 
+            font-weight: bold; 
+            color: #4db8ff; 
+            margin-bottom: 5px; 
+        }
+        .info-content { 
+            background-color: #333; 
+            padding: 10px; 
+            border-radius: 4px; 
+            font-family: monospace; 
+            white-space: pre-wrap; 
+            border: 1px solid #555;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 10px 0; 
+            background-color: #2a2a2a;
+        }
+        th, td { 
+            border: 1px solid #444; 
+            padding: 8px; 
+            text-align: left; 
+        }
+        th { 
+            background-color: #333; 
+            color: #f0f0f0;
+        }
+        .loading { 
+            text-align: center; 
+            padding: 20px; 
+            color: #ccc;
+        }
+        .status { 
+            margin: 10px 0; 
+            padding: 10px; 
+            border-radius: 4px; 
+        }
+        .status.success { 
+            background-color: #155724; 
+            color: #d4edda; 
+            border: 1px solid #28a745;
+        }
+        .status.error { 
+            background-color: #721c24; 
+            color: #f8d7da; 
+            border: 1px solid #dc3545;
+        }
+        .duration { 
+            font-size: 0.9em; 
+            color: #aaa; 
+        }
+        h1 { 
+            color: #f0f0f0; 
+            border-bottom: 2px solid #007cba; 
+            padding-bottom: 10px;
+        }
+        h2 { 
+            color: #e0e0e0; 
+        }
+        h3 { 
+            color: #ccc; 
+        }
+        p { 
+            color: #ccc; 
+        }
+        small { 
+            color: #aaa !important; 
+        }
     </style>
 </head>
 <body>
@@ -88,12 +242,12 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
         <form id="scanForm">
             <div class="form-group">
                 <label for="apiEndpoint">Beacon API Endpoint:</label>
-                <input type="text" id="apiEndpoint" name="apiEndpoint" value="https://beacon.fusaka-devnet-0.ethpandaops.io/" placeholder="https://beacon.fusaka-devnet-0.ethpandaops.io/">
+                <input type="text" id="apiEndpoint" name="apiEndpoint" value="{{.BeaconEndpoint}}" placeholder="{{.BeaconEndpoint}}">
             </div>
 
             <div class="form-group">
                 <label for="nodeKeys">Node Keys (ENRs, one per line):</label>
-                <textarea id="nodeKeys" name="nodeKeys" placeholder="enr:-Oi4QJ..."></textarea>
+                <textarea id="nodeKeys" name="nodeKeys" placeholder="enr:-Oi4QJ...">{{.DefaultENR}}</textarea>
             </div>
 
             <div class="form-group">
@@ -102,13 +256,64 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
                 <small style="color: #666;">Number of random slots to sample for DAS verification (1-20)</small>
             </div>
 
-            <button type="submit" id="scanButton">Scan Nodes</button>
+            <div style="display: flex; gap: 10px;">
+                <button type="submit" id="scanButton">Scan Nodes</button>
+                <button type="button" id="fetchENRButton">Fetch Latest ENR</button>
+            </div>
         </form>
 
         <div id="results" class="result"></div>
     </div>
 
     <script>
+        // Add event listener for fetch ENR button
+        document.getElementById('fetchENRButton').addEventListener('click', async function() {
+            const fetchButton = this;
+            const apiEndpoint = document.getElementById('apiEndpoint').value.trim();
+            const nodeKeysTextarea = document.getElementById('nodeKeys');
+
+            if (!apiEndpoint) {
+                alert('Please enter a Beacon API Endpoint first');
+                return;
+            }
+
+            fetchButton.disabled = true;
+            fetchButton.textContent = 'Fetching...';
+
+            try {
+                const response = await fetch('/api/fetch-enr', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        api_endpoint: apiEndpoint
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || 'Failed to fetch ENR');
+                }
+
+                const data = await response.json();
+                nodeKeysTextarea.value = data.enr;
+                
+                // Show success message briefly
+                const originalText = fetchButton.textContent;
+                fetchButton.textContent = 'Fetched!';
+                setTimeout(() => {
+                    fetchButton.textContent = 'Fetch Latest ENR';
+                }, 1500);
+
+            } catch (error) {
+                alert('Error fetching ENR: ' + error.message);
+            } finally {
+                fetchButton.disabled = false;
+                if (fetchButton.textContent === 'Fetching...') {
+                    fetchButton.textContent = 'Fetch Latest ENR';
+                }
+            }
+        });
+
         document.getElementById('scanForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
@@ -263,13 +468,57 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	data := struct {
+		BeaconEndpoint string
+		DefaultENR     string
+	}{
+		BeaconEndpoint: defaultBeaconEndpoint,
+		DefaultENR:     defaultENR,
+	}
+
 	w.Header().Set("Content-Type", "text/html")
-	t.Execute(w, nil)
+	t.Execute(w, data)
 }
 
 func handleScan(w http.ResponseWriter, r *http.Request) {
 	// Redirect to index
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func handleFetchENR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		APIEndpoint string `json:"api_endpoint"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if request.APIEndpoint == "" {
+		http.Error(w, "API endpoint is required", http.StatusBadRequest)
+		return
+	}
+
+	enr, err := fetchBeaconENR(request.APIEndpoint)
+	if err != nil {
+		http.Error(w, "Failed to fetch ENR: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := struct {
+		ENR string `json:"enr"`
+	}{
+		ENR: enr,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func handleAPIScan(w http.ResponseWriter, r *http.Request) {
