@@ -12,7 +12,6 @@ import (
 	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/encoder"
 	p2ptypes "github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/types"
 	"github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
-	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -27,10 +26,6 @@ type ReqRespConfig struct {
 	Encoder      encoder.NetworkEncoding
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
-
-	// local metadata
-	BeaconStatus   pb.StatusV2
-	BeaconMetadata pb.MetaDataV2
 }
 
 // ReqResp implements the request response domain of the eth2 RPC spec:
