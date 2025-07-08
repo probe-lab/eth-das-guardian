@@ -54,7 +54,7 @@ func monitorAction(ctx context.Context, cmd *cli.Command) error {
 			log.WithFields(log.Fields{
 				"web-port": rootConfig.WebPort,
 			}).Info("starting eth-das-guardian web server alongside monitoring")
-			dasguardian.StartWebServerWithEndpoint(rootConfig.WebPort, rootConfig.BeaconAPIendpoint)
+			dasguardian.StartWebServerWithEndpoint(rootConfig.WebPort, rootConfig.BeaconAPIendpoint, rootConfig.BeaconName)
 		}()
 	}
 

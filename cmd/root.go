@@ -21,6 +21,7 @@ var rootConfig = struct {
 	WaitForFulu       bool
 	WebPort           int
 	WebMode           bool
+	BeaconName        string
 }{
 	Libp2pHost:        "127.0.0.1",
 	Libp2pPort:        9013,
@@ -31,6 +32,7 @@ var rootConfig = struct {
 	WaitForFulu:       true,
 	WebPort:           8080,
 	WebMode:           false,
+	BeaconName:        "",
 }
 
 var rootCmd = &cli.Command{
@@ -99,6 +101,12 @@ var rootFlags = []cli.Flag{
 		Usage:       "Enable web server mode",
 		Destination: &rootConfig.WebMode,
 	},
+	&cli.StringFlag{
+		Name:        "beacon.name",
+		Usage:       "Optional name for the beacon node (displayed in web UI)",
+		Value:       rootConfig.BeaconName,
+		Destination: &rootConfig.BeaconName,
+	},
 }
 
 func guardianAction(ctx context.Context, cmd *cli.Command) error {
@@ -106,7 +114,7 @@ func guardianAction(ctx context.Context, cmd *cli.Command) error {
 		log.WithFields(log.Fields{
 			"web-port": rootConfig.WebPort,
 		}).Info("starting eth-das-guardian web server")
-		dasguardian.StartWebServerWithEndpoint(rootConfig.WebPort, rootConfig.BeaconAPIendpoint)
+		dasguardian.StartWebServerWithEndpoint(rootConfig.WebPort, rootConfig.BeaconAPIendpoint, rootConfig.BeaconName)
 		return nil
 	}
 	return nil

@@ -42,11 +42,19 @@ type WebScanResponse struct {
 
 var defaultBeaconEndpoint string
 var defaultENR string
+var defaultVersion string
+var defaultBeaconName string
 
 type BeaconNodeIdentity struct {
 	Data struct {
 		PeerID string `json:"peer_id"`
 		ENR    string `json:"enr"`
+	} `json:"data"`
+}
+
+type BeaconNodeVersion struct {
+	Data struct {
+		Version string `json:"version"`
 	} `json:"data"`
 }
 
@@ -79,13 +87,43 @@ func fetchBeaconENR(beaconEndpoint string) (string, error) {
 	return identity.Data.ENR, nil
 }
 
-func StartWebServer(port int) {
-	StartWebServerWithEndpoint(port, "")
+func fetchBeaconVersion(beaconEndpoint string) (string, error) {
+	if !strings.HasSuffix(beaconEndpoint, "/") {
+		beaconEndpoint += "/"
+	}
+	
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	resp, err := client.Get(beaconEndpoint + "eth/v1/node/version")
+	if err != nil {
+		log.Warnf("Failed to fetch beacon node version: %v", err)
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Warnf("Beacon node version request failed with status: %d", resp.StatusCode)
+		return "", fmt.Errorf("request failed with status %d", resp.StatusCode)
+	}
+
+	var version BeaconNodeVersion
+	if err := json.NewDecoder(resp.Body).Decode(&version); err != nil {
+		log.Warnf("Failed to decode beacon node version: %v", err)
+		return "", err
+	}
+
+	return version.Data.Version, nil
 }
 
-func StartWebServerWithEndpoint(port int, beaconEndpoint string) {
+func StartWebServer(port int) {
+	StartWebServerWithEndpoint(port, "", "")
+}
+
+func StartWebServerWithEndpoint(port int, beaconEndpoint, beaconName string) {
 	if beaconEndpoint != "" {
 		defaultBeaconEndpoint = beaconEndpoint
+		defaultBeaconName = beaconName
 		// Try to fetch ENR from the beacon node
 		if enr, err := fetchBeaconENR(beaconEndpoint); err == nil {
 			defaultENR = enr
@@ -94,14 +132,25 @@ func StartWebServerWithEndpoint(port int, beaconEndpoint string) {
 			log.Warnf("Could not fetch beacon node ENR, using empty default")
 			defaultENR = ""
 		}
+		// Try to fetch version from the beacon node
+		if version, err := fetchBeaconVersion(beaconEndpoint); err == nil {
+			defaultVersion = version
+			log.Infof("Fetched beacon node version: %s", version)
+		} else {
+			log.Warnf("Could not fetch beacon node version, using empty default")
+			defaultVersion = "Version unavailable"
+		}
 	} else {
 		defaultBeaconEndpoint = "https://beacon.fusaka-devnet-0.ethpandaops.io/"
 		defaultENR = ""
+		defaultVersion = "Version unavailable"
+		defaultBeaconName = ""
 	}
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/scan", handleScan)
 	http.HandleFunc("/api/scan", handleAPIScan)
 	http.HandleFunc("/api/fetch-enr", handleFetchENR)
+	http.HandleFunc("/api/fetch-version", handleFetchVersion)
 
 	log.Infof("Starting web server on port %d", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
@@ -236,13 +285,17 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 </head>
 <body>
     <div class="container">
-        <h1>Eth DAS Guardian Web UI</h1>
+        <h1>Eth DAS Guardian Web UI{{if .BeaconName}} - {{.BeaconName}}{{end}}</h1>
         <p>Configure one API endpoint and multiple node keys to scan Ethereum DAS custody information.</p>
 
         <form id="scanForm">
             <div class="form-group">
                 <label for="apiEndpoint">Beacon API Endpoint:</label>
-                <input type="text" id="apiEndpoint" name="apiEndpoint" value="{{.BeaconEndpoint}}" placeholder="{{.BeaconEndpoint}}">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="apiEndpoint" name="apiEndpoint" value="{{.BeaconEndpoint}}" placeholder="{{.BeaconEndpoint}}" style="flex: 1;">
+                    <span id="versionDisplay" style="color: #4db8ff; font-size: 0.9em; white-space: nowrap; min-width: 150px;">{{.DefaultVersion}}</span>
+                    <button type="button" id="refreshVersionButton" style="padding: 5px 10px; font-size: 0.8em;">Refresh</button>
+                </div>
             </div>
 
             <div class="form-group">
@@ -310,6 +363,55 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
                 fetchButton.disabled = false;
                 if (fetchButton.textContent === 'Fetching...') {
                     fetchButton.textContent = 'Fetch Latest ENR';
+                }
+            }
+        });
+
+        // Add event listener for refresh version button
+        document.getElementById('refreshVersionButton').addEventListener('click', async function() {
+            const refreshButton = this;
+            const apiEndpoint = document.getElementById('apiEndpoint').value.trim();
+            const versionDisplay = document.getElementById('versionDisplay');
+
+            if (!apiEndpoint) {
+                alert('Please enter a Beacon API Endpoint first');
+                return;
+            }
+
+            refreshButton.disabled = true;
+            refreshButton.textContent = 'Loading...';
+            versionDisplay.textContent = 'Fetching version...';
+
+            try {
+                const response = await fetch('/api/fetch-version', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        api_endpoint: apiEndpoint
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || 'Failed to fetch version');
+                }
+
+                const data = await response.json();
+                versionDisplay.textContent = data.version;
+                
+                // Show success feedback briefly
+                refreshButton.textContent = 'Updated!';
+                setTimeout(() => {
+                    refreshButton.textContent = 'Refresh';
+                }, 1500);
+
+            } catch (error) {
+                versionDisplay.textContent = 'Version unavailable';
+                alert('Error fetching version: ' + error.message);
+            } finally {
+                refreshButton.disabled = false;
+                if (refreshButton.textContent === 'Loading...') {
+                    refreshButton.textContent = 'Refresh';
                 }
             }
         });
@@ -471,9 +573,13 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		BeaconEndpoint string
 		DefaultENR     string
+		DefaultVersion string
+		BeaconName     string
 	}{
 		BeaconEndpoint: defaultBeaconEndpoint,
 		DefaultENR:     defaultENR,
+		DefaultVersion: defaultVersion,
+		BeaconName:     defaultBeaconName,
 	}
 
 	w.Header().Set("Content-Type", "text/html")
@@ -515,6 +621,42 @@ func handleFetchENR(w http.ResponseWriter, r *http.Request) {
 		ENR string `json:"enr"`
 	}{
 		ENR: enr,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func handleFetchVersion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		APIEndpoint string `json:"api_endpoint"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if request.APIEndpoint == "" {
+		http.Error(w, "API endpoint is required", http.StatusBadRequest)
+		return
+	}
+
+	version, err := fetchBeaconVersion(request.APIEndpoint)
+	if err != nil {
+		http.Error(w, "Failed to fetch version: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := struct {
+		Version string `json:"version"`
+	}{
+		Version: version,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
