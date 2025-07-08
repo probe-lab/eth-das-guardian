@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	dasguardian "github.com/probe-lab/eth-das-guardian"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v3"
 )
@@ -36,6 +37,7 @@ var rootCmd = &cli.Command{
 	Name:                  "das-guardian",
 	Usage:                 "An Ethereum DAS custody checker with CLI and Web UI modes",
 	EnableShellCompletion: true,
+	Action:                guardianAction,
 	Flags:                 rootFlags,
 	Commands: []*cli.Command{
 		cmdScan,
@@ -104,9 +106,11 @@ func guardianAction(ctx context.Context, cmd *cli.Command) error {
 		log.WithFields(log.Fields{
 			"web-port": rootConfig.WebPort,
 		}).Info("starting eth-das-guardian web server")
-		startWebServer(rootConfig.WebPort)
+		dasguardian.StartWebServer(rootConfig.WebPort)
 		return nil
 	}
+	return nil
+}
 
 func main() {
 	log.WithFields(log.Fields{

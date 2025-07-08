@@ -1,4 +1,4 @@
-package main
+package dasguardian
 
 import (
 	"context"
@@ -39,7 +39,7 @@ type WebScanResponse struct {
 	Duration time.Duration    `json:"duration"`
 }
 
-func startWebServer(port int) {
+func StartWebServer(port int) {
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/scan", handleScan)
 	http.HandleFunc("/api/scan", handleAPIScan)
@@ -329,7 +329,7 @@ func scanSingleNode(apiEndpoint, nodeKey string, samples uint64) NodeScanResult 
 	defer cancel()
 
 	// Parse the node
-	ethNode, err := parseNode(nodeKey)
+	ethNode, err := ParseNode(nodeKey)
 	if err != nil {
 		result.Error = fmt.Sprintf("Failed to parse ENR: %v", err)
 		result.Duration = time.Since(startTime)
@@ -371,7 +371,7 @@ func scanSingleNode(apiEndpoint, nodeKey string, samples uint64) NodeScanResult 
 	result.CustodyGroups = enrCustodyGroups
 
 	// Get peer address info
-	enodeAddr, err := parseMaddrFromEnode(ethNode)
+	enodeAddr, err := ParseMaddrFromEnode(ethNode)
 	if err != nil {
 		result.Error = fmt.Sprintf("Failed to parse multiaddr: %v", err)
 		result.Duration = time.Since(startTime)
@@ -424,12 +424,12 @@ func scanSingleNode(apiEndpoint, nodeKey string, samples uint64) NodeScanResult 
 	return result
 }
 
-func performDASCheck(ctx context.Context, guardian *DasGuardian, status *pb.Status, custodyIdxs []uint64, peerID peer.ID, samples uint64) ([][]string, []string) {
+func performDASCheck(ctx context.Context, guardian *DasGuardian, status *pb.StatusV2, custodyIdxs []uint64, peerID peer.ID, samples uint64) ([][]string, []string) {
 	// Select random slots for sampling
-	randomSlots := guardian.selectRandomSlotsForRange(
-		uint64(status.HeadSlot),
-		samples,
-		CustodySlots,
+	randomSlots := selectRandomSlotsForRange(
+		int64(status.HeadSlot),
+		int64(samples),
+		int64(CustodySlots),
 	)
 
 	log.Infof("Selected random slots: %v (head slot: %d)", randomSlots, status.HeadSlot)
@@ -494,7 +494,7 @@ func performDASCheck(ctx context.Context, guardian *DasGuardian, status *pb.Stat
 					validCommit := 0
 					for _, colCom := range dataCol.KzgCommitments {
 						for _, kzgCom := range blobKzgCommitments {
-							if compareBytes(colCom, kzgCom[:]) {
+							if matchingBytes(colCom, kzgCom[:]) {
 								validCommit++
 							}
 						}
