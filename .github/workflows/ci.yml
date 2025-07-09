@@ -21,6 +21,12 @@ jobs:
     
     - name: Build with Just
       run: just build
+
+  docker:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
     
     - name: Build Docker image
       run: docker build -t eth-das-guardian:test .
