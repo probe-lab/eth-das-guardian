@@ -782,15 +782,15 @@ func scanSingleNode(apiEndpoint, nodeKey string, samples uint64) NodeScanResult 
 	result.Libp2pInfo = guardian.libp2pPeerInfo(enodeAddr.ID)
 
 	// Get beacon status
-	remoteStatus := guardian.requestBeaconStatus(ctx, enodeAddr.ID)
+	remoteStatus := guardian.requestBeaconStatusV2(ctx, enodeAddr.ID)
 	if remoteStatus != nil {
-		result.BeaconStatus = guardian.visualizeBeaconStatus(remoteStatus)
+		result.BeaconStatus = guardian.visualizeBeaconStatusV2(remoteStatus)
 	}
 
 	// Get beacon metadata
-	remoteMetadata := guardian.requestBeaconMetadata(ctx, enodeAddr.ID)
+	remoteMetadata := guardian.requestBeaconMetadataV3(ctx, enodeAddr.ID)
 	if remoteMetadata != nil {
-		result.BeaconMeta = guardian.visualizeBeaconMetadata(remoteMetadata)
+		result.BeaconMeta = guardian.visualizeBeaconMetadataV3(remoteMetadata)
 
 		// Check custody mismatch
 		if enrCustody != remoteMetadata.CustodyGroupCount {
