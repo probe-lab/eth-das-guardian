@@ -153,12 +153,14 @@ type DasGuardian struct {
 	state  *api.PeerDASstate
 
 	// pre-fulu
-	electraStatus   pb.Status
-	electraMetadata pb.MetaDataV1
+	electraM        sync.RWMutex
+	electraStatus   *pb.Status
+	electraMetadata *pb.MetaDataV1
 
 	// post-fulu
-	fuluStatus   pb.StatusV2
-	fuluMetadata pb.MetaDataV2
+	fuluM        sync.RWMutex
+	fuluStatus   *pb.StatusV2
+	fuluMetadata *pb.MetaDataV2
 }
 
 func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, error) {
@@ -190,10 +192,15 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 	}
 
 	guardian := &DasGuardian{
-		cfg:    cfg,
-		host:   h,
-		pubsub: pubsub,
-		apiCli: apiCli,
+		cfg:             cfg,
+		host:            h,
+		pubsub:          pubsub,
+		apiCli:          apiCli,
+		state:           &api.PeerDASstate{},
+		electraStatus:   &pb.Status{},
+		electraMetadata: &pb.MetaDataV1{},
+		fuluStatus:      &pb.StatusV2{},
+		fuluMetadata:    &pb.MetaDataV2{},
 	}
 
 	if err := guardian.init(ctx); err != nil {
@@ -277,6 +284,11 @@ func (g *DasGuardian) init(ctx context.Context) error {
 	g.stateM.RUnlock()
 
 	err = g.composeLocalBeaconStaus()
+	if err != nil {
+		return err
+	}
+
+	err = g.composeLocalBeaconMetadata()
 	if err != nil {
 		return err
 	}
@@ -373,11 +385,7 @@ func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNo
 }
 
 func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluationResult, error) {
-	// scan based on the fork_version or state_version
-	g.stateM.RLock()
-	defer g.stateM.RUnlock()
-	// check if we are pre or post fulu
-	switch g.state.Version {
+	switch g.getCurrentStateVersion() {
 	case "electra":
 		return g.scanElectra(ctx, ethNode)
 	case "fulu":
@@ -473,6 +481,7 @@ func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (DASEva
 		return DASEvaluationResult{}, fmt.Errorf("failed to get beacon status from peer %s", enodeAddr.ID)
 	}
 	statusLogs := g.visualizeBeaconStatusV2(remoteStatus)
+	prettyLogrusFields("remote status-v2", statusLogs)
 
 	// exchange beacon-metadata
 	remoteMetadata := g.requestBeaconMetadataV3(ctx, enodeAddr.ID)
@@ -480,6 +489,7 @@ func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (DASEva
 		return DASEvaluationResult{}, fmt.Errorf("failed to get beacon metadata from peer %s", enodeAddr.ID)
 	}
 	metadataLogs := g.visualizeBeaconMetadataV3(remoteMetadata)
+	prettyLogrusFields("remote metadata-v3", metadataLogs)
 	metadataCustodyIdxs, err := CustodyColumnsSlice(ethNode.ID(), remoteMetadata.CustodyGroupCount, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
 	if err != nil {
 		return DASEvaluationResult{}, errors.Wrap(err, "wrong cuystody subnet")
@@ -711,8 +721,9 @@ func (g *DasGuardian) visualizeBeaconStatusV2(status *pb.StatusV2) map[string]an
 }
 
 func (g *DasGuardian) requestBeaconStatusV1(ctx context.Context, pid peer.ID) *pb.Status {
-	// TODO: probably better to lock the state here as well to read the status
-	status, err := g.rpcServ.StatusV1(ctx, pid, &g.electraStatus)
+	g.electraM.RLock()
+	defer g.electraM.Unlock()
+	status, err := g.rpcServ.StatusV1(ctx, pid, g.electraStatus)
 	if err != nil {
 		log.Warnf("error requesting beacon-status-v1 - %s", err.Error())
 	}
@@ -721,7 +732,9 @@ func (g *DasGuardian) requestBeaconStatusV1(ctx context.Context, pid peer.ID) *p
 
 func (g *DasGuardian) requestBeaconStatusV2(ctx context.Context, pid peer.ID) *pb.StatusV2 {
 	// TODO: probably better to lock the state here as well to read the status
-	status, err := g.rpcServ.StatusV2(ctx, pid, &g.fuluStatus)
+	g.fuluM.RLock()
+	defer g.fuluM.RUnlock()
+	status, err := g.rpcServ.StatusV2(ctx, pid, g.fuluStatus)
 	if err != nil {
 		log.Warnf("error requesting beacon-status-v2 - %s", err.Error())
 	}
@@ -754,7 +767,9 @@ func (g *DasGuardian) visualizeBeaconMetadataV3(metadata *pb.MetaDataV2) map[str
 }
 
 func (g *DasGuardian) requestBeaconMetadataV2(ctx context.Context, pid peer.ID) *pb.MetaDataV1 {
-	metadata, err := g.rpcServ.MetaDataV2(ctx, pid, &g.electraMetadata)
+	g.electraM.RLock()
+	defer g.electraM.RUnlock()
+	metadata, err := g.rpcServ.MetaDataV2(ctx, pid, g.electraMetadata)
 	if err != nil {
 		log.Warnf("error requesting beacon-metadata-v2 - %s", err.Error())
 	}
@@ -762,7 +777,9 @@ func (g *DasGuardian) requestBeaconMetadataV2(ctx context.Context, pid peer.ID) 
 }
 
 func (g *DasGuardian) requestBeaconMetadataV3(ctx context.Context, pid peer.ID) *pb.MetaDataV2 {
-	metadata, err := g.rpcServ.MetaDataV3(ctx, pid, &g.fuluMetadata)
+	g.fuluM.RLock()
+	defer g.fuluM.RUnlock()
+	metadata, err := g.rpcServ.MetaDataV3(ctx, pid, g.fuluMetadata)
 	if err != nil {
 		log.Warnf("error requesting beacon-metadata-v3 - %s", err.Error())
 	}
@@ -770,10 +787,7 @@ func (g *DasGuardian) requestBeaconMetadataV3(ctx context.Context, pid peer.ID) 
 }
 
 func (g *DasGuardian) composeLocalBeaconStaus() error {
-	// check if we are pre or post fulu
-	g.stateM.RLock()
-	defer g.stateM.RUnlock()
-	switch g.state.Version {
+	switch g.getCurrentStateVersion() {
 	case "electra":
 		return g.composeElectraBeaconStatus()
 	case "fulu":
@@ -803,13 +817,15 @@ func (g *DasGuardian) composeElectraBeaconStatus() error {
 	headRoot := bytesutil.ToBytes32(g.state.Data.LatestBlockHeader.StateRoot[:])
 	headSlot := primitives.Slot(g.state.Data.LatestBlockHeader.Slot)
 
-	g.electraStatus = pb.Status{
+	g.electraM.Lock()
+	g.electraStatus = &pb.Status{
 		ForkDigest:     forkDigest,
 		FinalizedRoot:  finalizedRoot[:],
 		FinalizedEpoch: finalizedEpoch,
 		HeadRoot:       headRoot[:],
 		HeadSlot:       headSlot,
 	}
+	g.electraM.Unlock()
 
 	prettyLogrusFields("local beacon-status", map[string]any{
 		"head-slot":   headSlot,
@@ -842,7 +858,8 @@ func (g *DasGuardian) composeFuluBeaconStatus() error {
 	headRoot := bytesutil.ToBytes32(g.state.Data.LatestBlockHeader.StateRoot[:])
 	headSlot := primitives.Slot(g.state.Data.LatestBlockHeader.Slot)
 
-	g.fuluStatus = pb.StatusV2{
+	g.fuluM.Lock()
+	g.fuluStatus = &pb.StatusV2{
 		ForkDigest:            forkDigest,
 		FinalizedRoot:         finalizedRoot[:],
 		FinalizedEpoch:        finalizedEpoch,
@@ -850,6 +867,7 @@ func (g *DasGuardian) composeFuluBeaconStatus() error {
 		HeadSlot:              headSlot,
 		EarliestAvailableSlot: headSlot,
 	}
+	g.fuluM.Unlock()
 
 	prettyLogrusFields("local beacon-status", map[string]any{
 		"head-slot":   headSlot,
@@ -860,10 +878,7 @@ func (g *DasGuardian) composeFuluBeaconStatus() error {
 }
 
 func (g *DasGuardian) composeLocalBeaconMetadata() error {
-	// check if we are pre or post fulu
-	g.stateM.RLock()
-	defer g.stateM.RUnlock()
-	switch g.state.Version {
+	switch g.getCurrentStateVersion() {
 	case "electra":
 		return g.composeElectraMetadata()
 	case "fulu":
@@ -874,21 +889,36 @@ func (g *DasGuardian) composeLocalBeaconMetadata() error {
 }
 
 func (g *DasGuardian) composeElectraMetadata() error {
-	g.electraMetadata = pb.MetaDataV1{
+	g.electraM.Lock()
+	g.electraMetadata = &pb.MetaDataV1{
 		SeqNumber: 0,
 		Attnets:   bitfield.NewBitvector64(),
 		Syncnets:  bitfield.Bitvector4{byte(0x00)},
 	}
+	prettyLogrusFields("local beacon-metadata-v1", map[string]any{
+		"seq":      g.electraMetadata.SeqNumber,
+		"attnets":  fmt.Sprintf("0x%x", g.electraMetadata.Attnets),
+		"syncnets": fmt.Sprintf("0x%x", g.electraMetadata.Syncnets),
+	})
+	g.electraM.Unlock()
 	return nil
 }
 
 func (g *DasGuardian) composeFuluMetadata() error {
-	g.fuluMetadata = pb.MetaDataV2{
+	g.fuluM.Lock()
+	g.fuluMetadata = &pb.MetaDataV2{
 		SeqNumber:         0,
 		Attnets:           bitfield.NewBitvector64(),
 		Syncnets:          bitfield.Bitvector4{byte(0x00)},
 		CustodyGroupCount: uint64(0),
 	}
+	g.fuluM.Unlock()
+	prettyLogrusFields("local beacon-metadata-v1", map[string]any{
+		"seq":      g.fuluMetadata.SeqNumber,
+		"attnets":  fmt.Sprintf("0x%x", g.fuluMetadata.Attnets),
+		"syncnets": fmt.Sprintf("0x%x", g.fuluMetadata.Syncnets),
+		"cgc":      g.fuluMetadata.CustodyGroupCount,
+	})
 	return nil
 }
 
@@ -906,7 +936,7 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 	for s, slot := range slots {
 		// make the request per each column
 		g.stateM.Lock()
-		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, slot, columnIdxs, g.fuluStatus.ForkDigest)
+		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, slot, columnIdxs, g.getCurrentForkDigest())
 		g.stateM.RUnlock()
 		if err != nil {
 			log.Error(err)
@@ -949,16 +979,24 @@ func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]*a
 	return blocks, nil
 }
 
-func (g *DasGuardian) getCurrentForkDigest() string {
+func (g *DasGuardian) getCurrentStateVersion() string {
 	g.stateM.RLock()
 	defer g.stateM.RUnlock()
-	switch g.state.Version {
-	case "electra":
-		return string(g.electraStatus.ForkDigest)
-	case "fulu":
-		return string(g.fuluStatus.ForkDigest)
-	default:
-		return ""
-	}
+	return g.state.Version
 
+}
+
+func (g *DasGuardian) getCurrentForkDigest() []byte {
+	switch g.getCurrentStateVersion() {
+	case "electra":
+		g.electraM.RLock()
+		defer g.electraM.RUnlock()
+		return g.electraStatus.ForkDigest
+	case "fulu":
+		g.fuluM.RLock()
+		defer g.fuluM.RUnlock()
+		return g.fuluStatus.ForkDigest
+	default:
+		return []byte{}
+	}
 }

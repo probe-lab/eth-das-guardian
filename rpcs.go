@@ -82,6 +82,9 @@ func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID) (err error) {
 }
 
 func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *pb.Status) (status *pb.Status, err error) {
+	if isNill(st) {
+		return nil, fmt.Errorf("the given local-status-v1 is a nil pointer")
+	}
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
@@ -108,6 +111,9 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *pb.Status) (sta
 }
 
 func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *pb.StatusV2) (status *pb.StatusV2, err error) {
+	if isNill(st) {
+		return nil, fmt.Errorf("the given local-status-v2 is a nil pointer")
+	}
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, errors.Wrap(err, "connection wasn't stablished when requesting status-v2")
 	}
@@ -118,13 +124,13 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *pb.StatusV2) (s
 	defer stream.Reset()
 
 	if err := r.writeRequest(ctx, stream, st); err != nil {
-		return nil, fmt.Errorf("write status request: %w", err)
+		return nil, fmt.Errorf("write status-v2 request: %w", err)
 	}
 
 	// read and decode status response
 	resp := &pb.StatusV2{}
 	if err := r.readResponse(ctx, stream, resp); err != nil {
-		return nil, fmt.Errorf("read status response: %w", err)
+		return nil, fmt.Errorf("read status-v2 response: %w", err)
 	}
 
 	// we have the data that we want, so ignore error here
@@ -134,6 +140,9 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *pb.StatusV2) (s
 }
 
 func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, mt *pb.MetaDataV1) (resp *pb.MetaDataV1, err error) {
+	if isNill(mt) {
+		return nil, fmt.Errorf("the given local-metadata-v2 is a nil pointer")
+	}
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
@@ -144,13 +153,13 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, mt *pb.MetaDataV1
 	defer stream.Reset()
 
 	if err := r.writeRequest(ctx, stream, mt); err != nil {
-		return nil, fmt.Errorf("write status request: %w", err)
+		return nil, fmt.Errorf("write metadata-v2 request: %w", err)
 	}
 
 	// read and decode status response
 	resp = &pb.MetaDataV1{}
 	if err := r.readResponse(ctx, stream, resp); err != nil {
-		return nil, fmt.Errorf("read metadata response: %w", err)
+		return nil, fmt.Errorf("read metadata-v2 response: %w", err)
 	}
 
 	// we have the data that we want, so ignore error here
@@ -160,6 +169,10 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, mt *pb.MetaDataV1
 }
 
 func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, mt *pb.MetaDataV2) (resp *pb.MetaDataV2, err error) {
+	fmt.Println(mt)
+	if isNill(mt) {
+		return nil, fmt.Errorf("the given local-metadata-v3 is a nil pointer")
+	}
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
@@ -170,13 +183,13 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, mt *pb.MetaDataV2
 	defer stream.Reset()
 
 	if err := r.writeRequest(ctx, stream, mt); err != nil {
-		return nil, fmt.Errorf("write status request: %w", err)
+		return nil, fmt.Errorf("write metadata-v3 request: %w", err)
 	}
 
 	// read and decode status response
 	resp = &pb.MetaDataV2{}
 	if err := r.readResponse(ctx, stream, resp); err != nil {
-		return nil, fmt.Errorf("read metadata response: %w", err)
+		return nil, fmt.Errorf("read metadata-v3 response: %w", err)
 	}
 
 	// we have the data that we want, so ignore error here
