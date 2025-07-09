@@ -722,7 +722,7 @@ func (g *DasGuardian) visualizeBeaconStatusV2(status *pb.StatusV2) map[string]an
 
 func (g *DasGuardian) requestBeaconStatusV1(ctx context.Context, pid peer.ID) *pb.Status {
 	g.electraM.RLock()
-	defer g.electraM.Unlock()
+	defer g.electraM.RUnlock()
 	status, err := g.rpcServ.StatusV1(ctx, pid, g.electraStatus)
 	if err != nil {
 		log.Warnf("error requesting beacon-status-v1 - %s", err.Error())
