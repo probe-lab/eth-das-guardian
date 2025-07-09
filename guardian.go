@@ -789,7 +789,6 @@ func (g *DasGuardian) composeElectraBeaconStatus() error {
 		g.state.Data.Fork.CurrentVersion[:],
 		g.state.Data.GenesisValidatorsRoot[:],
 	)
-	forkDigest, err = hex.DecodeString(g.state.Data.Fork.String())
 	if err != nil {
 		return err
 	}
