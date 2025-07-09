@@ -17,18 +17,18 @@ type PeerDASstate struct {
 	Data                electra.BeaconState `json:"data"`
 }
 
-func (c *Client) GetPeerDASstate(ctx context.Context) (PeerDASstate, error) {
+func (c *Client) GetPeerDASstate(ctx context.Context) (*PeerDASstate, error) {
 	var state PeerDASstate
 
 	resp, err := c.get(ctx, c.cfg.QueryTimeout, BeaconStateBase, "")
 	if err != nil {
-		return state, errors.Wrap(err, "requesting beacon-state")
+		return &state, errors.Wrap(err, "requesting beacon-state")
 	}
 
 	err = json.Unmarshal(resp, &state)
 	if err != nil {
-		return state, errors.Wrap(err, "unmarshaling beacon-state from http request")
+		return &state, errors.Wrap(err, "unmarshaling beacon-state from http request")
 	}
 
-	return state, nil
+	return &state, nil
 }

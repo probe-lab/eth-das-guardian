@@ -9,7 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func computeForkDigest(forkV []byte, valRoots []byte) ([]byte, error) {
+func computePreFuluForkDigest(forkV []byte, valRoots []byte) ([]byte, error) {
 	r, err := (&pb.ForkData{
 		CurrentVersion:        forkV,
 		GenesisValidatorsRoot: valRoots,

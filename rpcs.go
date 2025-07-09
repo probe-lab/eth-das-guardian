@@ -81,7 +81,7 @@ func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID) (err error) {
 	return nil
 }
 
-func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID) (status *pb.Status, err error) {
+func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *pb.Status) (status *pb.Status, err error) {
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID) (status *pb.Status,
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(ctx, stream, &r.cfg.BeaconStatus); err != nil {
+	if err := r.writeRequest(ctx, stream, st); err != nil {
 		return nil, fmt.Errorf("write status request: %w", err)
 	}
 
@@ -107,7 +107,7 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID) (status *pb.Status,
 	return resp, nil
 }
 
-func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID) (status *pb.StatusV2, err error) {
+func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *pb.StatusV2) (status *pb.StatusV2, err error) {
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, errors.Wrap(err, "connection wasn't stablished when requesting status-v2")
 	}
@@ -117,7 +117,7 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID) (status *pb.StatusV
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(ctx, stream, &r.cfg.BeaconStatus); err != nil {
+	if err := r.writeRequest(ctx, stream, st); err != nil {
 		return nil, fmt.Errorf("write status request: %w", err)
 	}
 
@@ -133,7 +133,33 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID) (status *pb.StatusV
 	return resp, nil
 }
 
-func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *pb.MetaDataV2, err error) {
+func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, mt *pb.MetaDataV1) (resp *pb.MetaDataV1, err error) {
+	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
+		return nil, err
+	}
+	stream, err := r.host.NewStream(ctx, pid, r.protocolID(p2p.RPCMetaDataTopicV2))
+	if err != nil {
+		return resp, fmt.Errorf("new %s stream to peer %s: %w", p2p.RPCMetaDataTopicV2, pid, err)
+	}
+	defer stream.Reset()
+
+	if err := r.writeRequest(ctx, stream, mt); err != nil {
+		return nil, fmt.Errorf("write status request: %w", err)
+	}
+
+	// read and decode status response
+	resp = &pb.MetaDataV1{}
+	if err := r.readResponse(ctx, stream, resp); err != nil {
+		return nil, fmt.Errorf("read metadata response: %w", err)
+	}
+
+	// we have the data that we want, so ignore error here
+	_ = stream.Close() // (both sides should actually be already closed)
+
+	return resp, nil
+}
+
+func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, mt *pb.MetaDataV2) (resp *pb.MetaDataV2, err error) {
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
@@ -143,7 +169,7 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *pb.MetaDat
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(ctx, stream, &r.cfg.BeaconMetadata); err != nil {
+	if err := r.writeRequest(ctx, stream, mt); err != nil {
 		return nil, fmt.Errorf("write status request: %w", err)
 	}
 
@@ -289,7 +315,7 @@ func (r *ReqResp) decodeElectraBlock(encoding encoder.NetworkEncoding, stream ne
 
 // -- Data column requests --
 // https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyrange-v1
-func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uint64, columnIdxs []uint64) (time.Duration, []*pb.DataColumnSidecar, error) {
+func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uint64, columnIdxs []uint64, forkD []byte) (time.Duration, []*pb.DataColumnSidecar, error) {
 	dataColumns := make([]*pb.DataColumnSidecar, 0)
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return time.Duration(0), dataColumns, err
@@ -316,7 +342,7 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	// read and decode status response
 
 	for i := uint64(0); ; /* no stop condition */ i++ {
-		dataCol, err := readChunkedDataColumnSideCar(stream, r.cfg.Encoder, r.cfg.BeaconStatus.ForkDigest)
+		dataCol, err := readChunkedDataColumnSideCar(stream, r.cfg.Encoder, forkD)
 		if errors.Is(err, io.EOF) {
 			// End of stream.
 			break
