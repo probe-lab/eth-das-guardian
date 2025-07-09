@@ -65,3 +65,7 @@ func truncateStr(text string, width int) string {
 	trunc := r[:width]
 	return string(trunc) + "..."
 }
+
+func isNill(i any) bool {
+	return i == nil
+}
