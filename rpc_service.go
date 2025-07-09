@@ -24,13 +24,14 @@ var (
 )
 
 type ReqRespConfig struct {
+	Logger       log.FieldLogger
 	Encoder      encoder.NetworkEncoding
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 
 	// local metadata
-	BeaconStatus   pb.StatusV2
-	BeaconMetadata pb.MetaDataV2
+	BeaconStatus   *pb.StatusV2
+	BeaconMetadata *pb.MetaDataV2
 }
 
 // ReqResp implements the request response domain of the eth2 RPC spec:

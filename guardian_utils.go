@@ -21,10 +21,10 @@ func computeForkDigest(forkV []byte, valRoots []byte) ([]byte, error) {
 	return digest[:], nil
 }
 
-func prettyLogrusFields(msg string, fields map[string]any) {
-	log.Info(msg)
+func prettyLogrusFields(logger log.FieldLogger, msg string, fields map[string]any) {
+	logger.Info(msg)
 	for k, v := range fields {
-		log.Info("\t* ", k, ":\t", v)
+		logger.Info("\t* ", k, ":\t", v)
 	}
 }
 

@@ -37,15 +37,15 @@ func (i *NodeIdentity) Syncnets() string {
 	return i.Data.Metadata.Syncnets
 }
 
-func (c *Client) GetNodeIdentity(ctx context.Context) (NodeIdentity, error) {
+func (c *Client) GetNodeIdentity(ctx context.Context) (*NodeIdentity, error) {
 	var nodeIdentity NodeIdentity
 	resp, err := c.get(ctx, c.cfg.QueryTimeout, NodeIdentityBase, "")
 	if err != nil {
-		return nodeIdentity, errors.Wrap(err, "requesting node-identity")
+		return nil, errors.Wrap(err, "requesting node-identity")
 	}
 	err = json.Unmarshal(resp, &nodeIdentity)
 	if err != nil {
-		return nodeIdentity, errors.Wrap(err, "unmarshaling node-identity from http request")
+		return nil, errors.Wrap(err, "unmarshaling node-identity from http request")
 	}
-	return nodeIdentity, nil
+	return &nodeIdentity, nil
 }

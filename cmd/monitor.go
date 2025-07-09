@@ -41,12 +41,14 @@ var monitorFlags = []cli.Flag{
 }
 
 func monitorAction(ctx context.Context, cmd *cli.Command) error {
-	log.WithFields(log.Fields{
+	logger := log.WithFields(log.Fields{})
+	logger.WithFields(log.Fields{
 		"freq":     monitorConfig.MonitorFrequency,
 		"duration": monitorConfig.MonitorDuration,
 	}).Info("monitor cmd...")
 
 	ethConfig := &dasguardian.DasGuardianConfig{
+		Logger:            logger,
 		Libp2pHost:        rootConfig.Libp2pHost,
 		Libp2pPort:        rootConfig.Libp2pPort,
 		ConnectionRetries: rootConfig.ConnectionRetries,

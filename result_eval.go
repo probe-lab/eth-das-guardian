@@ -2,10 +2,9 @@ package dasguardian
 
 import (
 	"fmt"
-	"strconv"
 
 	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
-	"github.com/probe-lab/eth-das-guardian/api"
+	"github.com/attestantio/go-eth2-client/spec"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,10 +20,11 @@ type DASEvaluationResult struct {
 }
 
 func evaluateColumnResponses(
+	logger log.FieldLogger,
 	nodeID string,
 	slots []uint64,
 	columnIdxs []uint64,
-	bBlocks []*api.BeaconBlock,
+	bBlocks []*spec.VersionedSignedBeaconBlock,
 	cols [][]*pb.DataColumnSidecar,
 ) (DASEvaluationResult, error) {
 	dasEvalRes := DASEvaluationResult{
@@ -37,11 +37,12 @@ func evaluateColumnResponses(
 		ValidSlot:        make([]bool, len(slots)),
 	}
 
-	for s, _ := range slots {
+	for s := range slots {
 		downloaded := make([]string, len(columnIdxs))
 		validKzg := make([]string, len(columnIdxs))
 		validColumn := make([]bool, len(columnIdxs))
 		validSlot := true // true, unless something is not correct
+		slot, _ := bBlocks[s].Slot()
 		defer func() {
 			dasEvalRes.DownloadedResult[s] = downloaded
 			dasEvalRes.ValidKzg[s] = validKzg
@@ -52,7 +53,8 @@ func evaluateColumnResponses(
 		// check if we could actually download anything from the
 		blobCount := 0
 		if bBlocks[s] != nil {
-			blobCount = len(bBlocks[s].Data.Message.Body.BlobKZGCommitments)
+			kzgCommitments, _ := bBlocks[s].BlobKZGCommitments()
+			blobCount = len(kzgCommitments)
 		}
 		if len(cols[s]) == 0 {
 			//lint:ignore S1005 complaints all the time
@@ -63,25 +65,20 @@ func evaluateColumnResponses(
 			}
 			validSlot = (blobCount == 0)
 			if blobCount != 0 {
-				log.Errorf(
+				logger.Errorf(
 					"no data cols for slot (downloaded data-cols %d) (block %s)",
 					len(cols[s]),
-					bBlocks[s].Data.Message.Slot,
+					slot,
 				)
 			}
 			continue
 		}
 
 		// check if the received columns match the requested ones
-		slot, err := strconv.Atoi(bBlocks[s].Data.Message.Slot)
-		if err != nil {
-			log.Error("convert msg-slot epoch to int - ", err)
-		}
 		if uint64(slot) != uint64(cols[s][0].SignedBlockHeader.Header.Slot) {
-			log.Warnf(
-				"slot (%d), block (%s) and col-slot (%d) don't match",
+			logger.Warnf(
+				"slot (%d) and col-slot (%d) don't match",
 				slot,
-				bBlocks[s].Data.Message.Slot,
 				uint64(cols[s][0].SignedBlockHeader.Header.Slot),
 			)
 			validSlot = false
@@ -89,7 +86,7 @@ func evaluateColumnResponses(
 
 		// check if the commitments match
 		for c, dataCol := range cols[s] {
-			blockKzgCommitments := bBlocks[s].Data.Message.Body.BlobKZGCommitments
+			blockKzgCommitments, _ := bBlocks[s].BlobKZGCommitments()
 			validCom := 0
 			for _, colCom := range dataCol.KzgCommitments {
 			kzgCheckLoop:
@@ -123,18 +120,18 @@ func matchingBytes(org, to []byte) (equal bool) {
 	return true
 }
 
-func (res *DASEvaluationResult) LogVisualization() error {
-	log.Info("DAS evaluation for", res.NodeID)
+func (res *DASEvaluationResult) LogVisualization(logger log.FieldLogger) error {
+	logger.Info("DAS evaluation for", res.NodeID)
 	// we assume that both, the cols and the blocks are sorted
 	for s, slot := range res.Slots {
 		if res.ValidSlot[s] {
-			log.Infof("slot (%d) valid (%t):\n", slot, res.ValidSlot[s])
+			logger.Infof("slot (%d) valid (%t):\n", slot, res.ValidSlot[s])
 		} else {
-			log.Warnf("slot (%d) valid (%t):\n", slot, res.ValidSlot[s])
+			logger.Warnf("slot (%d) valid (%t):\n", slot, res.ValidSlot[s])
 		}
 		for c, sum := range res.DownloadedResult[s] {
 			if res.ValidColumn[s][c] {
-				log.Infof(
+				logger.Infof(
 					"slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
 					slot,
 					res.ColumnIdx[c],
@@ -142,7 +139,7 @@ func (res *DASEvaluationResult) LogVisualization() error {
 					res.ValidKzg[s][c],
 				)
 			} else {
-				log.Warnf(
+				logger.Warnf(
 					"slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
 					slot,
 					res.ColumnIdx[c],

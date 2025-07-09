@@ -42,7 +42,10 @@ var scanFlags = []cli.Flag{
 }
 
 func scanAction(ctx context.Context, cmd *cli.Command) error {
+	logger := log.WithFields(log.Fields{})
+
 	ethConfig := &dasguardian.DasGuardianConfig{
+		Logger:            logger,
 		Libp2pHost:        rootConfig.Libp2pHost,
 		Libp2pPort:        rootConfig.Libp2pPort,
 		ConnectionRetries: rootConfig.ConnectionRetries,
@@ -73,7 +76,7 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		return res.LogVisualization()
+		return res.LogVisualization(logger)
 
 	default:
 		ethNodes := make([]*enode.Node, len(scanConfig.NodeKeys))
@@ -95,7 +98,7 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 		}
 		// TODO: hardcoded visualization
 		for _, r := range res {
-			err = r.LogVisualization()
+			err = r.LogVisualization(logger)
 			if err != nil {
 				log.Error(err)
 			}

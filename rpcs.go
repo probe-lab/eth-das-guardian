@@ -91,7 +91,7 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID) (status *pb.Status,
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(ctx, stream, &r.cfg.BeaconStatus); err != nil {
+	if err := r.writeRequest(ctx, stream, r.cfg.BeaconStatus); err != nil {
 		return nil, fmt.Errorf("write status request: %w", err)
 	}
 
@@ -117,7 +117,7 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID) (status *pb.StatusV
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(ctx, stream, &r.cfg.BeaconStatus); err != nil {
+	if err := r.writeRequest(ctx, stream, r.cfg.BeaconStatus); err != nil {
 		return nil, fmt.Errorf("write status request: %w", err)
 	}
 
@@ -143,7 +143,7 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *pb.MetaDat
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(ctx, stream, &r.cfg.BeaconMetadata); err != nil {
+	if err := r.writeRequest(ctx, stream, r.cfg.BeaconMetadata); err != nil {
 		return nil, fmt.Errorf("write status request: %w", err)
 	}
 
