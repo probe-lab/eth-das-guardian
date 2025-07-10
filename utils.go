@@ -94,3 +94,7 @@ func hash(data []byte) [32]byte {
 
 	return b
 }
+
+func isNill(i any) bool {
+	return i == nil
+}

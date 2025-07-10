@@ -11,10 +11,8 @@ import (
 
 var monitorConfig = struct {
 	MonitorFrequency time.Duration
-	MonitorDuration  time.Duration
 }{
 	MonitorFrequency: 1 * time.Minute,
-	MonitorDuration:  10 * time.Minute,
 }
 
 var cmdMonitor = &cli.Command{
@@ -32,19 +30,12 @@ var monitorFlags = []cli.Flag{
 		Value:       monitorConfig.MonitorFrequency,
 		Destination: &monitorConfig.MonitorFrequency,
 	},
-	&cli.DurationFlag{
-		Name:        "duration",
-		Usage:       "Duration of the whole monitoring process ['5m', '1h']",
-		Value:       monitorConfig.MonitorDuration,
-		Destination: &monitorConfig.MonitorDuration,
-	},
 }
 
 func monitorAction(ctx context.Context, cmd *cli.Command) error {
 	logger := log.WithFields(log.Fields{})
 	logger.WithFields(log.Fields{
-		"freq":     monitorConfig.MonitorFrequency,
-		"duration": monitorConfig.MonitorDuration,
+		"freq": monitorConfig.MonitorFrequency,
 	}).Info("monitor cmd...")
 
 	ethConfig := &dasguardian.DasGuardianConfig{

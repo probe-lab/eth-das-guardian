@@ -22,6 +22,7 @@ const (
 
 type BeaconAPI interface {
 	Init(ctx context.Context) error
+	GetStateVersion() string
 	GetForkDigest() ([]byte, error)
 	GetFinalizedCheckpoint() *phase0.Checkpoint
 	GetLatestBlockHeader() *phase0.BeaconBlockHeader
@@ -131,8 +132,6 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 					return err
 				}
 			}
-		} else {
-			return fmt.Errorf("network doesn't support fulu yet (slot: %d - %s)", currentState.Data.Slot, currentState.Version)
 		}
 	} else {
 		b.cfg.Logger.Info("fulu is supported")
@@ -148,6 +147,10 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 
 	b.headState = &currentState
 	return nil
+}
+
+func (b *BeaconAPIImpl) GetStateVersion() string {
+	return b.headState.Version
 }
 
 type BlobScheduleEntry struct {
