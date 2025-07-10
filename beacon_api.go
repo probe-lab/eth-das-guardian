@@ -115,7 +115,7 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		b.cfg.Logger.Warnf("current: (slot: %d epoch: %d - version: %s)", currentState.Data.Slot, (uint64(currentState.Data.Slot) / slotsPerEpoch), currentState.Version)
 		b.cfg.Logger.Warnf("target:  (slot: %d epoch: %d - missing: %d slots = %s)", fuluForkEpoch*int(slotsPerEpoch), fuluForkEpoch, (fuluForkEpoch*int(slotsPerEpoch))-int(currentState.Data.Slot), secondsToFulu)
 		b.cfg.Logger.Infof("timing config: %d seconds per slot, %d slots per epoch (fetched from beacon API)", secondsPerSlot, slotsPerEpoch)
-		
+
 		if b.cfg.WaitForFulu {
 			b.cfg.Logger.Info("waiting for ", secondsToFulu)
 			if secondsToFulu < 0 {
@@ -180,7 +180,11 @@ func (b *BeaconAPIImpl) GetForkDigest() ([]byte, error) {
 
 	blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
 	if !ok {
-		return nil, fmt.Errorf("blob schedule not found")
+		// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled
+		// Don't calculate fork digest with blob parameters in this case
+		b.cfg.Logger.Info("BLOB_SCHEDULE not found (no BPO scheduled), skipping blob parameter computation")
+		forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, b.headState.Data.Fork.CurrentVersion, nil)
+		return forkDigest[:], nil
 	}
 
 	for _, blobScheduleEntry := range blobSchedule {
