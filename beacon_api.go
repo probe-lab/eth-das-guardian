@@ -27,7 +27,7 @@ type BeaconAPI interface {
 	GetForkDigest() ([]byte, error)
 	GetFinalizedCheckpoint() *phase0.Checkpoint
 	GetLatestBlockHeader() *phase0.BeaconBlockHeader
-	GetFuluForkEpoch() int
+	GetFuluForkEpoch() uint64
 	GetNodeIdentity(ctx context.Context) (*api.NodeIdentity, error)
 	GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error)
 }
@@ -45,7 +45,7 @@ type BeaconAPIImpl struct {
 	specs         map[string]any
 	headState     *api.PeerDASstate
 	forkSchedules api.ForkSchedule
-	fuluForkEpoch int
+	fuluForkEpoch uint64
 }
 
 func NewBeaconAPI(cfg BeaconAPIConfig) (BeaconAPI, error) {
@@ -95,10 +95,10 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		return err
 	}
 
-	var fuluForkEpoch int
+	var fuluForkEpoch uint64
 
 	if len(forkSchedules.Data) > FuluForkScheduleIdx {
-		fuluForkEpoch, err = strconv.Atoi(b.forkSchedules.Epoch)
+		fuluForkEpoch, err = strconv.ParseUint(b.forkSchedules.Epoch, 10, 64)
 		if err != nil {
 			return err
 		}
@@ -120,11 +120,11 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		return fmt.Errorf("SLOTS_PER_EPOCH not found in beacon API config specs")
 	}
 
-	if (int(currentState.Data.Slot)/int(slotsPerEpoch)) < fuluForkEpoch && fuluForkEpoch != math.MaxInt {
-		secondsToFulu := time.Duration(((fuluForkEpoch*int(slotsPerEpoch))-int(currentState.Data.Slot))*int(secondsPerSlot)) * time.Second
+	if (uint64(currentState.Data.Slot)/slotsPerEpoch) < fuluForkEpoch && fuluForkEpoch != math.MaxInt {
+		secondsToFulu := time.Duration(((fuluForkEpoch*slotsPerEpoch)-uint64(currentState.Data.Slot))*secondsPerSlot) * time.Second
 		b.cfg.Logger.Warnf("network doesn't support fulu yet")
 		b.cfg.Logger.Warnf("current: (slot: %d epoch: %d - version: %s)", currentState.Data.Slot, (uint64(currentState.Data.Slot) / slotsPerEpoch), currentState.Version)
-		b.cfg.Logger.Warnf("target:  (slot: %d epoch: %d - missing: %d slots = %s)", fuluForkEpoch*int(slotsPerEpoch), fuluForkEpoch, (fuluForkEpoch*int(slotsPerEpoch))-int(currentState.Data.Slot), secondsToFulu)
+		b.cfg.Logger.Warnf("target:  (slot: %d epoch: %d - missing: %d slots = %s)", fuluForkEpoch*slotsPerEpoch, fuluForkEpoch, (fuluForkEpoch*slotsPerEpoch)-uint64(currentState.Data.Slot), secondsToFulu)
 		b.cfg.Logger.Infof("timing config: %d seconds per slot, %d slots per epoch (fetched from beacon API)", secondsPerSlot, slotsPerEpoch)
 
 		if b.cfg.WaitForFulu {
@@ -265,7 +265,7 @@ func (b *BeaconAPIImpl) GetLatestBlockHeader() *phase0.BeaconBlockHeader {
 	return b.headState.Data.LatestBlockHeader
 }
 
-func (b *BeaconAPIImpl) GetFuluForkEpoch() int {
+func (b *BeaconAPIImpl) GetFuluForkEpoch() uint64 {
 	return b.fuluForkEpoch
 }
 
