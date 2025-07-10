@@ -347,15 +347,6 @@ func (g *DasGuardian) scanElectra(ctx context.Context, ethNode *enode.Node) (*Da
 		return nil, err
 	}
 
-	enrCustody, err := GetCustodyFromEnr(ethNode)
-	if err != nil {
-		g.cfg.Logger.Warn(err.Error())
-	}
-	enrCustodyGroups, err := CustodyColumnsSlice(ethNode.ID(), enrCustody, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
-	if err != nil {
-		return nil, err
-	}
-
 	// connection attempt using the libp2p host
 	if err := g.ConnectNode(ctx, enodeAddr); err != nil {
 		return nil, err
@@ -394,10 +385,8 @@ func (g *DasGuardian) scanElectra(ctx context.Context, ethNode *enode.Node) (*Da
 	metadataLogs := g.visualizeBeaconMetadataV2(remoteMetadata)
 
 	prettyLogrusFields(g.cfg.Logger, "scanning eth-node...", map[string]any{
-		"peer-id":            enodeAddr.ID.String(),
-		"maddr":              enodeAddr.Addrs,
-		"enr-custody":        enrCustody,
-		"enr-custody-groups": enrCustodyGroups,
+		"peer-id": enodeAddr.ID.String(),
+		"maddr":   enodeAddr.Addrs,
 	})
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
@@ -551,17 +540,19 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 
 	// compare the results from the API with the ones from the ENR
 
-	// cgc
-	enrCustody, err := GetCustodyFromEnr(enrNode)
-	if err != nil {
-		return err
-	}
-	apiCustody, _ := nodeInfo.CustodyInt()
-	if enrCustody != uint64(apiCustody) {
-		g.cfg.Logger.WithFields(log.Fields{
-			"enr": enrCustody,
-			"api": apiCustody,
-		}).Warn("enr and api custody don't match")
+	if g.apiCli.GetStateVersion() == "fulu" {
+		// cgc
+		enrCustody, err := GetCustodyFromEnr(enrNode)
+		if err != nil {
+			return err
+		}
+		apiCustody, _ := nodeInfo.CustodyInt()
+		if enrCustody != uint64(apiCustody) {
+			g.cfg.Logger.WithFields(log.Fields{
+				"enr": enrCustody,
+				"api": apiCustody,
+			}).Warn("enr and api custody don't match")
+		}
 	}
 
 	// attesnets

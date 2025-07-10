@@ -141,7 +141,7 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, md *MetaDataV2) (
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV3))
+	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV2))
 	if err != nil {
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
@@ -172,7 +172,7 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (
 	}
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV3))
 	if err != nil {
-		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
+		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV3, pid, err)
 	}
 	defer stream.Reset()
 

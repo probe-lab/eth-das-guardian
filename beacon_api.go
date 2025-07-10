@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -83,7 +84,10 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	b.forkSchedules = forkSchedules.Data[FuluForkScheduleIdx] // we only need the fulu specifics
+
+	if len(forkSchedules.Data) > FuluForkScheduleIdx {
+		b.forkSchedules = forkSchedules.Data[FuluForkScheduleIdx] // we only need the fulu specifics
+	}
 
 	// compose and get the local Metadata
 	currentState, err := b.apiCli.GetPeerDASstate(ctx)
@@ -91,9 +95,15 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		return err
 	}
 
-	fuluForkEpoch, err := strconv.Atoi(b.forkSchedules.Epoch)
-	if err != nil {
-		return err
+	var fuluForkEpoch int
+
+	if len(forkSchedules.Data) > FuluForkScheduleIdx {
+		fuluForkEpoch, err = strconv.Atoi(b.forkSchedules.Epoch)
+		if err != nil {
+			return err
+		}
+	} else {
+		fuluForkEpoch = math.MaxInt
 	}
 
 	b.fuluForkEpoch = fuluForkEpoch
@@ -110,7 +120,7 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		return fmt.Errorf("SLOTS_PER_EPOCH not found in beacon API config specs")
 	}
 
-	if (int(currentState.Data.Slot) / int(slotsPerEpoch)) < fuluForkEpoch {
+	if (int(currentState.Data.Slot)/int(slotsPerEpoch)) < fuluForkEpoch && fuluForkEpoch != math.MaxInt {
 		secondsToFulu := time.Duration(((fuluForkEpoch*int(slotsPerEpoch))-int(currentState.Data.Slot))*int(secondsPerSlot)) * time.Second
 		b.cfg.Logger.Warnf("network doesn't support fulu yet")
 		b.cfg.Logger.Warnf("current: (slot: %d epoch: %d - version: %s)", currentState.Data.Slot, (uint64(currentState.Data.Slot) / slotsPerEpoch), currentState.Version)
