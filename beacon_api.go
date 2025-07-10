@@ -182,9 +182,7 @@ func (b *BeaconAPIImpl) GetForkDigest() ([]byte, error) {
 	if !ok {
 		// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled
 		// Don't calculate fork digest with blob parameters in this case
-		b.cfg.Logger.Info("BLOB_SCHEDULE not found (no BPO scheduled), skipping blob parameter computation")
-		forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, b.headState.Data.Fork.CurrentVersion, nil)
-		return forkDigest[:], nil
+		b.cfg.Logger.Warn("BLOB_SCHEDULE not found (no BPO scheduled), using electra blob parameters")
 	}
 
 	for _, blobScheduleEntry := range blobSchedule {
