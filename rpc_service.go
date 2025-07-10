@@ -24,13 +24,14 @@ var (
 )
 
 type ReqRespConfig struct {
+	Logger       log.FieldLogger
 	Encoder      encoder.NetworkEncoding
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 
 	// local metadata
-	BeaconStatus   pb.StatusV2
-	BeaconMetadata pb.MetaDataV2
+	BeaconStatus   *pb.StatusV2
+	BeaconMetadata *pb.MetaDataV2
 }
 
 // ReqResp implements the request response domain of the eth2 RPC spec:
@@ -75,7 +76,7 @@ func (r *ReqResp) RegisterHandlers(ctx context.Context) error {
 
 	for id, handler := range handlers {
 		protocolID := r.protocolID(id)
-		log.WithField("protocol", protocolID).Debug("Register protocol handler...")
+		r.cfg.Logger.WithField("protocol", protocolID).Debug("Register protocol handler...")
 		r.host.SetStreamHandler(protocolID, r.wrapStreamHandler(ctx, string(protocolID), handler))
 	}
 
@@ -182,7 +183,7 @@ func (r *ReqResp) wrapStreamHandler(ctx context.Context, name string, handler Co
 		// time the request handling
 		err := handler(ctx, s)
 		if err != nil {
-			log.WithFields(log.Fields{
+			r.cfg.Logger.WithFields(log.Fields{
 				"protocol":    s.Protocol(),
 				"error":       err,
 				"remote-peer": s.Conn().RemotePeer().String(),
@@ -199,7 +200,7 @@ func (r *ReqResp) pingHandler(ctx context.Context, stream network.Stream) error 
 
 	sq := primitives.SSZUint64(uint64(23))
 	if err := r.writeResponse(ctx, stream, &sq); err != nil {
-		log.Error("write sequence number", err)
+		r.cfg.Logger.Error("write sequence number", err)
 	}
 	return stream.Close()
 }
@@ -210,7 +211,7 @@ func (r *ReqResp) goodbyeHandler(ctx context.Context, stream network.Stream) err
 		return fmt.Errorf("read sequence number: %w", err)
 	}
 	reason := ParseGoodByeReason(req)
-	log.WithFields(log.Fields{
+	r.cfg.Logger.WithFields(log.Fields{
 		"peer_id":  stream.Conn().RemotePeer().String(),
 		"err_code": req,
 		"reason":   reason,
