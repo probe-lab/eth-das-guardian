@@ -45,7 +45,19 @@ func monitorAction(ctx context.Context, cmd *cli.Command) error {
 	logger.WithFields(log.Fields{
 		"freq":     monitorConfig.MonitorFrequency,
 		"duration": monitorConfig.MonitorDuration,
+		"web-mode": rootConfig.WebMode,
+		"web-port": rootConfig.WebPort,
 	}).Info("monitor cmd...")
+
+	// Start web server in a goroutine if web mode is enabled
+	if rootConfig.WebMode {
+		go func() {
+			log.WithFields(log.Fields{
+				"web-port": rootConfig.WebPort,
+			}).Info("starting eth-das-guardian web server alongside monitoring")
+			dasguardian.StartWebServerWithEndpoint(rootConfig.WebPort, rootConfig.BeaconAPIendpoint, rootConfig.BeaconName)
+		}()
+	}
 
 	ethConfig := &dasguardian.DasGuardianConfig{
 		Logger:            logger,

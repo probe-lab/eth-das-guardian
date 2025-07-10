@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	dasguardian "github.com/probe-lab/eth-das-guardian"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v3"
 )
@@ -18,6 +19,9 @@ var rootConfig = struct {
 	ConnectionTimeout time.Duration
 	InitTimeout       time.Duration
 	WaitForFulu       bool
+	WebPort           int
+	WebMode           bool
+	BeaconName        string
 }{
 	Libp2pHost:        "127.0.0.1",
 	Libp2pPort:        9013,
@@ -26,12 +30,16 @@ var rootConfig = struct {
 	ConnectionTimeout: 30 * time.Second,
 	InitTimeout:       30 * time.Second,
 	WaitForFulu:       true,
+	WebPort:           8080,
+	WebMode:           false,
+	BeaconName:        "",
 }
 
 var rootCmd = &cli.Command{
 	Name:                  "das-guardian",
-	Usage:                 "An ethereum DAS custody checker",
+	Usage:                 "An Ethereum DAS custody checker with CLI and Web UI modes",
 	EnableShellCompletion: true,
+	Action:                guardianAction,
 	Flags:                 rootFlags,
 	Commands: []*cli.Command{
 		cmdScan,
@@ -82,6 +90,34 @@ var rootFlags = []cli.Flag{
 		Value:       rootConfig.WaitForFulu,
 		Destination: &rootConfig.WaitForFulu,
 	},
+	&cli.IntFlag{
+		Name:        "web.port",
+		Usage:       "Port for the web server",
+		Value:       rootConfig.WebPort,
+		Destination: &rootConfig.WebPort,
+	},
+	&cli.BoolFlag{
+		Name:        "web.mode",
+		Usage:       "Enable web server mode",
+		Destination: &rootConfig.WebMode,
+	},
+	&cli.StringFlag{
+		Name:        "beacon.name",
+		Usage:       "Optional name for the beacon node (displayed in web UI)",
+		Value:       rootConfig.BeaconName,
+		Destination: &rootConfig.BeaconName,
+	},
+}
+
+func guardianAction(ctx context.Context, cmd *cli.Command) error {
+	if rootConfig.WebMode {
+		log.WithFields(log.Fields{
+			"web-port": rootConfig.WebPort,
+		}).Info("starting eth-das-guardian web server")
+		dasguardian.StartWebServerWithEndpoint(rootConfig.WebPort, rootConfig.BeaconAPIendpoint, rootConfig.BeaconName)
+		return nil
+	}
+	return nil
 }
 
 func main() {
@@ -93,6 +129,8 @@ func main() {
 		"connection-timeout": rootConfig.ConnectionTimeout,
 		"init-timeout":       rootConfig.InitTimeout,
 		"wait-fulu":          rootConfig.WaitForFulu,
+		"web-port":           rootConfig.WebPort,
+		"web-mode":           rootConfig.WebMode,
 	}).Info("running das-guardian")
 
 	ctx, cancel := context.WithCancel(context.Background())

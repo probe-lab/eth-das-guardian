@@ -59,7 +59,6 @@ const (
 	// values
 	DataColumnSidecarSubnetCount = uint64(128)
 )
-
 type DasGuardianConfig struct {
 	Logger            log.FieldLogger
 	Libp2pHost        string
