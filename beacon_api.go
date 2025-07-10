@@ -24,7 +24,7 @@ const (
 type BeaconAPI interface {
 	Init(ctx context.Context) error
 	GetStateVersion() string
-	GetForkDigest() ([]byte, error)
+	GetForkDigest(slot uint64) ([]byte, error)
 	GetFinalizedCheckpoint() *phase0.Checkpoint
 	GetLatestBlockHeader() *phase0.BeaconBlockHeader
 	GetFuluForkEpoch() uint64
@@ -168,52 +168,69 @@ type BlobScheduleEntry struct {
 	MaxBlobsPerBlock uint64
 }
 
-func (b *BeaconAPIImpl) GetForkDigest() ([]byte, error) {
+func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 	slotsPerEpoch, ok := b.specs["SLOTS_PER_EPOCH"].(uint64)
 	if !ok {
 		slotsPerEpoch = 32
 	}
 
-	currentEpoch := uint64(b.headState.Data.Slot) / slotsPerEpoch
+	currentEpoch := slot / slotsPerEpoch
 
-	electraForkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64)
-	if !ok {
-		electraForkEpoch = 0
+	var forkVersion phase0.Version
+	var isFuluActive bool
+	var currentBlobParams *BlobScheduleEntry
+
+	if forkEpoch, ok := b.specs["FULU_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["FULU_FORK_VERSION"].(phase0.Version)
+		isFuluActive = true
+	} else if forkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["ELECTRA_FORK_VERSION"].(phase0.Version)
+	} else if forkEpoch, ok := b.specs["DENEB_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["DENEB_FORK_VERSION"].(phase0.Version)
+	} else if forkEpoch, ok := b.specs["CAPELLA_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["CAPELLA_FORK_VERSION"].(phase0.Version)
+	} else if forkEpoch, ok := b.specs["BELLATRIX_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["BELLATRIX_FORK_VERSION"].(phase0.Version)
+	} else if forkEpoch, ok := b.specs["ALTAIR_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["ALTAIR_FORK_VERSION"].(phase0.Version)
+	} else {
+		forkVersion = b.specs["GENESIS_FORK_VERSION"].(phase0.Version)
 	}
 
-	maxBlobsPerBlockElectra, ok := b.specs["MAX_BLOBS_PER_BLOCK_ELECTRA"].(uint64)
-	if !ok {
-		maxBlobsPerBlockElectra = 0
-	}
-
-	currentBlobParams := BlobScheduleEntry{
-		Epoch:            electraForkEpoch,
-		MaxBlobsPerBlock: maxBlobsPerBlockElectra,
-	}
-
-	blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
-	if !ok {
-		// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled
-		// Don't calculate fork digest with blob parameters in this case
-		b.cfg.Logger.Warn("BLOB_SCHEDULE not found (no BPO scheduled), using electra blob parameters")
-	}
-
-	for _, blobScheduleEntry := range blobSchedule {
-		blobScheduleMap := blobScheduleEntry.(map[string]any)
-		epoch, ok := blobScheduleMap["EPOCH"].(uint64)
+	if isFuluActive {
+		maxBlobsPerBlockElectra, ok := b.specs["MAX_BLOBS_PER_BLOCK_ELECTRA"].(uint64)
 		if !ok {
-			continue
+			maxBlobsPerBlockElectra = 0
 		}
 
-		if epoch <= currentEpoch {
-			currentBlobParams.Epoch = epoch
-			currentBlobParams.MaxBlobsPerBlock = blobScheduleMap["MAX_BLOBS_PER_BLOCK"].(uint64)
-		} else {
-			break
+		currentBlobParams := BlobScheduleEntry{
+			Epoch:            b.specs["ELECTRA_FORK_EPOCH"].(uint64),
+			MaxBlobsPerBlock: maxBlobsPerBlockElectra,
+		}
+
+		blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
+		if !ok {
+			// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled
+			b.cfg.Logger.Info("BLOB_SCHEDULE not found (no BPO scheduled), skipping blob parameter computation")
+		}
+
+		for _, blobScheduleEntry := range blobSchedule {
+			blobScheduleMap := blobScheduleEntry.(map[string]any)
+			epoch, ok := blobScheduleMap["EPOCH"].(uint64)
+			if !ok {
+				continue
+			}
+
+			if epoch <= currentEpoch {
+				currentBlobParams.Epoch = epoch
+				currentBlobParams.MaxBlobsPerBlock = blobScheduleMap["MAX_BLOBS_PER_BLOCK"].(uint64)
+			} else {
+				break
+			}
 		}
 	}
 
-	forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, b.headState.Data.Fork.CurrentVersion, &currentBlobParams)
+	forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, forkVersion, currentBlobParams)
 	return forkDigest[:], nil
 }
 

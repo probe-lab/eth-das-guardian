@@ -220,7 +220,7 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 	for i := uint64(0); ; i++ {
 		isFirstChunk := i == 0
 		block := &deneb.SignedBeaconBlock{}
-		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigest())
+		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigest(uint64(startSlot)+i))
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -258,7 +258,7 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 	for i := uint64(0); ; i++ {
 		isFirstChunk := i == 0
 		block := &deneb.SignedBeaconBlock{}
-		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigest())
+		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigest(startSlot+i))
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -301,7 +301,7 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 
 	for i := uint64(0); ; /* no stop condition */ i++ {
 		dataCol := &DataColumnSidecarV1{}
-		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigest())
+		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigest(slot))
 		if errors.Is(err, io.EOF) {
 			// End of stream.
 			break
