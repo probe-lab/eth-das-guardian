@@ -3,7 +3,6 @@ package dasguardian
 import (
 	"fmt"
 
-	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 	"github.com/attestantio/go-eth2-client/spec"
 	log "github.com/sirupsen/logrus"
 )
@@ -25,7 +24,7 @@ func evaluateColumnResponses(
 	slots []uint64,
 	columnIdxs []uint64,
 	bBlocks []*spec.VersionedSignedBeaconBlock,
-	cols [][]*pb.DataColumnSidecar,
+	cols [][]*DataColumnSidecarV1,
 ) (DASEvaluationResult, error) {
 	dasEvalRes := DASEvaluationResult{
 		NodeID:           nodeID,
@@ -75,11 +74,11 @@ func evaluateColumnResponses(
 		}
 
 		// check if the received columns match the requested ones
-		if uint64(slot) != uint64(cols[s][0].SignedBlockHeader.Header.Slot) {
+		if uint64(slot) != uint64(cols[s][0].SignedBlockHeader.Message.Slot) {
 			logger.Warnf(
 				"slot (%d) and col-slot (%d) don't match",
 				slot,
-				uint64(cols[s][0].SignedBlockHeader.Header.Slot),
+				uint64(cols[s][0].SignedBlockHeader.Message.Slot),
 			)
 			validSlot = false
 		}

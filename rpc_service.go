@@ -3,16 +3,8 @@ package dasguardian
 import (
 	"context"
 	"fmt"
-	"io"
 	"time"
 
-	ssz "github.com/ferranbt/fastssz"
-
-	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p"
-	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/encoder"
-	p2ptypes "github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/types"
-	"github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
-	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -23,15 +15,40 @@ var (
 	RPCStatusV2 = "/eth2/beacon_chain/req/status/2"
 )
 
+const (
+	// Spec defined codes.
+	GoodbyeCodeClientShutdown uint64 = iota + 1
+	GoodbyeCodeWrongNetwork
+	GoodbyeCodeGenericError
+
+	// Teku specific codes
+	GoodbyeCodeUnableToVerifyNetwork = uint64(128)
+
+	// Lighthouse specific codes
+	GoodbyeCodeTooManyPeers = uint64(129)
+	GoodbyeCodeBadScore     = uint64(250)
+	GoodbyeCodeBanned       = uint64(251)
+)
+
+// GoodbyeCodeMessages defines a mapping between goodbye codes and string messages.
+var GoodbyeCodeMessages = map[uint64]string{
+	GoodbyeCodeClientShutdown:        "client shutdown",
+	GoodbyeCodeWrongNetwork:          "irrelevant network",
+	GoodbyeCodeGenericError:          "fault/error",
+	GoodbyeCodeUnableToVerifyNetwork: "unable to verify network",
+	GoodbyeCodeTooManyPeers:          "client has too many peers",
+	GoodbyeCodeBadScore:              "peer score too low",
+	GoodbyeCodeBanned:                "client banned this node",
+}
+
 type ReqRespConfig struct {
 	Logger       log.FieldLogger
-	Encoder      encoder.NetworkEncoding
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 
 	// local metadata
-	BeaconStatus   *pb.StatusV2
-	BeaconMetadata *pb.MetaDataV2
+	BeaconStatus   *StatusV2
+	BeaconMetadata *MetaDataV2
 }
 
 // ReqResp implements the request response domain of the eth2 RPC spec:
@@ -58,117 +75,25 @@ func NewReqResp(h host.Host, cfg *ReqRespConfig) (*ReqResp, error) {
 // values.
 func (r *ReqResp) RegisterHandlers(ctx context.Context) error {
 	handlers := map[string]ContextStreamHandler{
-		p2p.RPCPingTopicV1:                r.pingHandler,
-		p2p.RPCGoodByeTopicV1:             r.goodbyeHandler,
-		p2p.RPCStatusTopicV1:              r.dummyHandler,
-		p2p.RPCMetaDataTopicV1:            r.dummyHandler,
-		p2p.RPCMetaDataTopicV2:            r.dummyHandler,
-		p2p.RPCMetaDataTopicV3:            r.dummyHandler,
-		p2p.RPCBlocksByRootTopicV1:        r.dummyHandler,
-		p2p.RPCBlocksByRootTopicV2:        r.dummyHandler,
-		p2p.RPCBlocksByRangeTopicV1:       r.dummyHandler,
-		p2p.RPCBlocksByRangeTopicV2:       r.dummyHandler,
-		p2p.RPCBlobSidecarsByRangeTopicV1: r.dummyHandler,
-		p2p.RPCBlobSidecarsByRootTopicV1:  r.dummyHandler,
-		p2p.DataColumnSidecarsByRangeName: r.dummyHandler,
-		p2p.DataColumnSidecarsByRootName:  r.dummyHandler,
+		RPCPingTopicV1:                      r.pingHandler,
+		RPCGoodByeTopicV1:                   r.goodbyeHandler,
+		RPCStatusTopicV1:                    r.dummyHandler,
+		RPCMetaDataTopicV1:                  r.dummyHandler,
+		RPCMetaDataTopicV2:                  r.dummyHandler,
+		RPCMetaDataTopicV3:                  r.dummyHandler,
+		RPCBlocksByRootTopicV1:              r.dummyHandler,
+		RPCBlocksByRootTopicV2:              r.dummyHandler,
+		RPCBlocksByRangeTopicV1:             r.dummyHandler,
+		RPCBlocksByRangeTopicV2:             r.dummyHandler,
+		RPCBlobSidecarsByRangeTopicV1:       r.dummyHandler,
+		RPCBlobSidecarsByRootTopicV1:        r.dummyHandler,
+		RPCDataColumnSidecarsByRangeTopicV1: r.dummyHandler,
+		RPCDataColumnSidecarsByRootTopicV1:  r.dummyHandler,
 	}
 
 	for id, handler := range handlers {
-		protocolID := r.protocolID(id)
-		r.cfg.Logger.WithField("protocol", protocolID).Debug("Register protocol handler...")
-		r.host.SetStreamHandler(protocolID, r.wrapStreamHandler(ctx, string(protocolID), handler))
-	}
-
-	return nil
-}
-
-func (r *ReqResp) protocolID(topic string) protocol.ID {
-	return protocol.ID(topic + r.cfg.Encoder.ProtocolSuffix())
-}
-
-// read-write functions
-func (r *ReqResp) readRequest(ctx context.Context, stream network.Stream, data ssz.Unmarshaler) (err error) {
-	if err = stream.SetReadDeadline(time.Now().Add(r.cfg.ReadTimeout)); err != nil {
-		return fmt.Errorf("failed setting read deadline on stream: %w", err)
-	}
-
-	if err = r.cfg.Encoder.DecodeWithMaxLength(stream, data); err != nil {
-		return fmt.Errorf("read request data %T: %w", data, err)
-	}
-
-	if err = stream.CloseRead(); err != nil {
-		return fmt.Errorf("failed to close reading side of stream: %w", err)
-	}
-
-	return nil
-}
-
-func (r *ReqResp) readResponse(ctx context.Context, stream network.Stream, data ssz.Unmarshaler) (err error) {
-	if err = stream.SetReadDeadline(time.Now().Add(r.cfg.ReadTimeout)); err != nil {
-		return fmt.Errorf("failed setting read deadline on stream: %w", err)
-	}
-
-	code := make([]byte, 1)
-	if _, err := io.ReadFull(stream, code); err != nil {
-		return fmt.Errorf("failed reading response code: %w", err)
-	}
-
-	// code == 0 means success
-	// code != 0 means error
-	if int(code[0]) != 0 {
-		errData, err := io.ReadAll(stream)
-		if err != nil {
-			return fmt.Errorf("failed reading error data (code %d): %w", int(code[0]), err)
-		}
-
-		return fmt.Errorf("received error response (code %d): %s", int(code[0]), string(errData))
-	}
-
-	if err = r.cfg.Encoder.DecodeWithMaxLength(stream, data); err != nil {
-		return fmt.Errorf("read request data %T: %w", data, err)
-	}
-
-	if err = stream.CloseRead(); err != nil {
-		return fmt.Errorf("failed to close reading side of stream: %w", err)
-	}
-
-	return nil
-}
-
-func (r *ReqResp) writeRequest(ctx context.Context, stream network.Stream, data ssz.Marshaler) (err error) {
-	if err = stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
-		return fmt.Errorf("failed setting write deadline on stream: %w", err)
-	}
-
-	if _, err = r.cfg.Encoder.EncodeWithMaxLength(stream, data); err != nil {
-		return fmt.Errorf("read sequence number: %w", err)
-	}
-
-	if err = stream.CloseWrite(); err != nil {
-		return fmt.Errorf("failed to close writing side of stream: %w", err)
-	}
-
-	return nil
-}
-
-// writeResponse differs from writeRequest in prefixing the payload data with
-// a response code byte.
-func (r *ReqResp) writeResponse(ctx context.Context, stream network.Stream, data ssz.Marshaler) (err error) {
-	if err = stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
-		return fmt.Errorf("failed setting write deadline on stream: %w", err)
-	}
-
-	if _, err := stream.Write([]byte{0}); err != nil { // success response
-		return fmt.Errorf("write success response code: %w", err)
-	}
-
-	if _, err = r.cfg.Encoder.EncodeWithMaxLength(stream, data); err != nil {
-		return fmt.Errorf("read sequence number: %w", err)
-	}
-
-	if err = stream.CloseWrite(); err != nil {
-		return fmt.Errorf("failed to close writing side of stream: %w", err)
+		r.cfg.Logger.WithField("protocol", id).Debug("Register protocol handler...")
+		r.host.SetStreamHandler(protocol.ID(id), r.wrapStreamHandler(ctx, id, handler))
 	}
 
 	return nil
@@ -193,21 +118,21 @@ func (r *ReqResp) wrapStreamHandler(ctx context.Context, name string, handler Co
 }
 
 func (r *ReqResp) pingHandler(ctx context.Context, stream network.Stream) error {
-	req := primitives.SSZUint64(0)
-	if err := r.readRequest(ctx, stream, &req); err != nil {
+	req := uint64(0)
+	if err := r.readRequest(stream, &req); err != nil {
 		return fmt.Errorf("read sequence number: %w", err)
 	}
 
-	sq := primitives.SSZUint64(uint64(23))
-	if err := r.writeResponse(ctx, stream, &sq); err != nil {
+	sq := uint64(23)
+	if err := r.writeResponse(stream, &sq); err != nil {
 		r.cfg.Logger.Error("write sequence number", err)
 	}
 	return stream.Close()
 }
 
 func (r *ReqResp) goodbyeHandler(ctx context.Context, stream network.Stream) error {
-	req := primitives.SSZUint64(0)
-	if err := r.readRequest(ctx, stream, &req); err != nil {
+	req := uint64(0)
+	if err := r.readRequest(stream, &req); err != nil {
 		return fmt.Errorf("read sequence number: %w", err)
 	}
 	reason := ParseGoodByeReason(req)
@@ -219,8 +144,8 @@ func (r *ReqResp) goodbyeHandler(ctx context.Context, stream network.Stream) err
 	return stream.Close()
 }
 
-func ParseGoodByeReason(num p2ptypes.RPCGoodbyeCode) string {
-	reason, ok := p2ptypes.GoodbyeCodeMessages[num]
+func ParseGoodByeReason(num uint64) string {
+	reason, ok := GoodbyeCodeMessages[num]
 	if ok {
 		return reason
 	}

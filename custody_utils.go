@@ -6,8 +6,6 @@ import (
 	"math"
 	"sort"
 
-	"github.com/OffchainLabs/prysm/v6/crypto/hash"
-	"github.com/OffchainLabs/prysm/v6/encoding/bytesutil"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/holiman/uint256"
 	errors "github.com/pkg/errors"
@@ -97,10 +95,10 @@ func CustodyColumnSubnets(nodeId enode.ID, custodySubnetCount uint64, dataColumn
 		currentIdBytesBigEndian := currentId.Bytes32()
 
 		// Convert to little endian.
-		currentIdBytesLittleEndian := bytesutil.ReverseByteOrder(currentIdBytesBigEndian[:])
+		currentIdBytesLittleEndian := reverseByteOrder(currentIdBytesBigEndian[:])
 
 		// Hash the result.
-		hashedCurrentId := hash.Hash(currentIdBytesLittleEndian)
+		hashedCurrentId := hash(currentIdBytesLittleEndian)
 
 		// Get the subnet ID.
 		subnetId := binary.LittleEndian.Uint64(hashedCurrentId[:8]) % dataColumnSidecarSubnetCount

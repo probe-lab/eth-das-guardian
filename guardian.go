@@ -10,12 +10,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/pkg/errors"
-	bitfield "github.com/prysmaticlabs/go-bitfield"
 	"github.com/wealdtech/go-bytesutil"
-
-	"github.com/OffchainLabs/prysm/v6/beacon-chain/p2p/encoder"
-	"github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
-	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	gcrypto "github.com/ethereum/go-ethereum/crypto"
@@ -143,8 +138,8 @@ type DasGuardian struct {
 	rpcServ *ReqResp
 
 	// chain data
-	headStatus   *pb.StatusV2
-	headMetadata *pb.MetaDataV2
+	headStatus   *StatusV2
+	headMetadata *MetaDataV2
 }
 
 func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, error) {
@@ -235,7 +230,6 @@ func (g *DasGuardian) init(ctx context.Context) error {
 	// register the rpc module
 	reqRespCfg := &ReqRespConfig{
 		Logger:         g.cfg.Logger,
-		Encoder:        &encoder.SszNetworkEncoder{},
 		ReadTimeout:    g.cfg.ConnectionTimeout,
 		WriteTimeout:   g.cfg.ConnectionTimeout,
 		BeaconStatus:   g.headStatus,
@@ -255,8 +249,8 @@ func (g *DasGuardian) init(ctx context.Context) error {
 
 type DasGuardianScanResult struct {
 	Libp2pInfo     map[string]any
-	RemoteStatus   *pb.StatusV2
-	RemoteMetadata *pb.MetaDataV2
+	RemoteStatus   *StatusV2
+	RemoteMetadata *MetaDataV2
 	EvalResult     DASEvaluationResult
 }
 
@@ -588,7 +582,7 @@ func (g *DasGuardian) libp2pPeerInfo(pid peer.ID) map[string]any {
 	return libp2pMetadata
 }
 
-func (g *DasGuardian) visualizeBeaconStatus(status *pb.StatusV2) map[string]any {
+func (g *DasGuardian) visualizeBeaconStatus(status *StatusV2) map[string]any {
 	statusInfo := make(map[string]any)
 	if status != nil {
 		statusInfo[ForkDigest] = fmt.Sprintf("0x%x", status.ForkDigest)
@@ -603,7 +597,7 @@ func (g *DasGuardian) visualizeBeaconStatus(status *pb.StatusV2) map[string]any 
 	return statusInfo
 }
 
-func (g *DasGuardian) requestBeaconStatus(ctx context.Context, pid peer.ID) *pb.StatusV2 {
+func (g *DasGuardian) requestBeaconStatus(ctx context.Context, pid peer.ID) *StatusV2 {
 	status, err := g.rpcServ.StatusV2(ctx, pid)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-status-v2 - %s", err.Error())
@@ -611,12 +605,12 @@ func (g *DasGuardian) requestBeaconStatus(ctx context.Context, pid peer.ID) *pb.
 	return status
 }
 
-func (g *DasGuardian) visualizeBeaconMetadata(metadata *pb.MetaDataV2) map[string]any {
+func (g *DasGuardian) visualizeBeaconMetadata(metadata *MetaDataV2) map[string]any {
 	metadataInfo := make(map[string]any)
 	if metadata != nil {
 		metadataInfo[SeqNumber] = metadata.SeqNumber
-		metadataInfo[Attnets] = fmt.Sprintf("0x%x", metadata.Attnets.Bytes())
-		metadataInfo[Syncnets] = fmt.Sprintf("0x%x", metadata.Syncnets.Bytes())
+		metadataInfo[Attnets] = fmt.Sprintf("0x%x", metadata.Attnets)
+		metadataInfo[Syncnets] = fmt.Sprintf("0x%x", metadata.Syncnets)
 		metadataInfo[CustodyGroupCount] = metadata.CustodyGroupCount
 	} else {
 		metadataInfo["beacon-metadata"] = "errored"
@@ -624,7 +618,7 @@ func (g *DasGuardian) visualizeBeaconMetadata(metadata *pb.MetaDataV2) map[strin
 	return metadataInfo
 }
 
-func (g *DasGuardian) requestBeaconMetadata(ctx context.Context, pid peer.ID) *pb.MetaDataV2 {
+func (g *DasGuardian) requestBeaconMetadata(ctx context.Context, pid peer.ID) *MetaDataV2 {
 	metadata, err := g.rpcServ.MetaDataV3(ctx, pid)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-metadata-v3 - %s", err.Error())
@@ -632,7 +626,7 @@ func (g *DasGuardian) requestBeaconMetadata(ctx context.Context, pid peer.ID) *p
 	return metadata
 }
 
-func (g *DasGuardian) composeLocalBeaconStatus() (*pb.StatusV2, error) {
+func (g *DasGuardian) composeLocalBeaconStatus() (*StatusV2, error) {
 	// fork digest
 	forkDigest, err := g.apiCli.GetForkDigest()
 	if err != nil {
@@ -642,40 +636,40 @@ func (g *DasGuardian) composeLocalBeaconStatus() (*pb.StatusV2, error) {
 	// finalized
 	finalizedCheckpoint := g.apiCli.GetFinalizedCheckpoint()
 	finalizedRoot := bytesutil.ToBytes32(finalizedCheckpoint.Root[:])
-	finalizedEpoch := primitives.Epoch(finalizedCheckpoint.Epoch)
+	finalizedEpoch := uint64(finalizedCheckpoint.Epoch)
 
 	// head
 	latestBlockHeader := g.apiCli.GetLatestBlockHeader()
 	headRoot := bytesutil.ToBytes32(latestBlockHeader.StateRoot[:])
-	headSlot := primitives.Slot(latestBlockHeader.Slot)
+	headSlot := uint64(latestBlockHeader.Slot)
 
-	return &pb.StatusV2{
-		ForkDigest:            forkDigest,
-		FinalizedRoot:         finalizedRoot[:],
+	return &StatusV2{
+		ForkDigest:            [4]byte(forkDigest),
+		FinalizedRoot:         finalizedRoot,
 		FinalizedEpoch:        finalizedEpoch,
-		HeadRoot:              headRoot[:],
+		HeadRoot:              headRoot,
 		HeadSlot:              headSlot,
 		EarliestAvailableSlot: headSlot,
 	}, nil
 }
 
-func (g *DasGuardian) composeLocalBeaconMetadata() *pb.MetaDataV2 {
-	return &pb.MetaDataV2{
+func (g *DasGuardian) composeLocalBeaconMetadata() *MetaDataV2 {
+	return &MetaDataV2{
 		SeqNumber:         0,
-		Attnets:           bitfield.NewBitvector64(),
-		Syncnets:          bitfield.Bitvector4{byte(0x00)},
+		Attnets:           [8]byte{},
+		Syncnets:          [1]byte{},
 		CustodyGroupCount: uint64(0),
 	}
 }
 
-func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, slots []uint64, columnIdxs []uint64) ([][]*pb.DataColumnSidecar, error) {
+func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, slots []uint64, columnIdxs []uint64) ([][]*DataColumnSidecarV1, error) {
 	g.cfg.Logger.WithFields(log.Fields{
 		"slots":   len(slots),
 		"columns": len(columnIdxs),
 	}).Info("sampling node for...")
 
 	// TODO: make sure that we limit the number of columns that we request (slots * idxs * columns)
-	dataColumns := make([][]*pb.DataColumnSidecar, len(slots))
+	dataColumns := make([][]*DataColumnSidecarV1, len(slots))
 
 	startT := time.Now()
 	// make the request for each slots
