@@ -97,11 +97,25 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 
 	b.fuluForkEpoch = fuluForkEpoch
 
-	if (int(currentState.Data.Slot) / 32) < fuluForkEpoch {
-		secondsToFulu := time.Duration(((fuluForkEpoch*32)-int(currentState.Data.Slot))*12) * time.Second
+	// Get timing configuration from beacon API specs
+	// SECONDS_PER_SLOT is parsed as time.Duration by the config parser
+	secondsPerSlotDuration, ok := b.specs["SECONDS_PER_SLOT"].(time.Duration)
+	if !ok {
+		return fmt.Errorf("SECONDS_PER_SLOT not found in beacon API config specs")
+	}
+	secondsPerSlot := uint64(secondsPerSlotDuration.Seconds())
+	slotsPerEpoch, ok := b.specs["SLOTS_PER_EPOCH"].(uint64)
+	if !ok {
+		return fmt.Errorf("SLOTS_PER_EPOCH not found in beacon API config specs")
+	}
+
+	if (int(currentState.Data.Slot) / int(slotsPerEpoch)) < fuluForkEpoch {
+		secondsToFulu := time.Duration(((fuluForkEpoch*int(slotsPerEpoch))-int(currentState.Data.Slot))*int(secondsPerSlot)) * time.Second
 		b.cfg.Logger.Warnf("network doesn't support fulu yet")
-		b.cfg.Logger.Warnf("current: (slot: %d epoch: %d - version: %s)", currentState.Data.Slot, (currentState.Data.Slot / 32), currentState.Version)
-		b.cfg.Logger.Warnf("target:  (slot: %d epoch: %d - missing: %d = %s)", fuluForkEpoch*32, fuluForkEpoch, (fuluForkEpoch*32)-int(currentState.Data.Slot), secondsToFulu)
+		b.cfg.Logger.Warnf("current: (slot: %d epoch: %d - version: %s)", currentState.Data.Slot, (uint64(currentState.Data.Slot) / slotsPerEpoch), currentState.Version)
+		b.cfg.Logger.Warnf("target:  (slot: %d epoch: %d - missing: %d slots = %s)", fuluForkEpoch*int(slotsPerEpoch), fuluForkEpoch, (fuluForkEpoch*int(slotsPerEpoch))-int(currentState.Data.Slot), secondsToFulu)
+		b.cfg.Logger.Infof("timing config: %d seconds per slot, %d slots per epoch (fetched from beacon API)", secondsPerSlot, slotsPerEpoch)
+
 		if b.cfg.WaitForFulu {
 			b.cfg.Logger.Info("waiting for ", secondsToFulu)
 			if secondsToFulu < 0 {
@@ -166,7 +180,11 @@ func (b *BeaconAPIImpl) GetForkDigest() ([]byte, error) {
 
 	blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
 	if !ok {
-		return nil, fmt.Errorf("blob schedule not found")
+		// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled
+		// Don't calculate fork digest with blob parameters in this case
+		b.cfg.Logger.Info("BLOB_SCHEDULE not found (no BPO scheduled), skipping blob parameter computation")
+		forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, b.headState.Data.Fork.CurrentVersion, nil)
+		return forkDigest[:], nil
 	}
 
 	for _, blobScheduleEntry := range blobSchedule {
