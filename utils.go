@@ -2,6 +2,7 @@ package dasguardian
 
 import (
 	"crypto/elliptic"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
@@ -64,4 +65,32 @@ func truncateStr(text string, width int) string {
 	r := []rune(text)
 	trunc := r[:width]
 	return string(trunc) + "..."
+}
+
+// reverseByteOrder Switch the endianness of a byte slice by reversing its order.
+// This function does not modify the actual input bytes.
+func reverseByteOrder(input []byte) []byte {
+	b := make([]byte, len(input))
+	copy(b, input)
+	for i := 0; i < len(b)/2; i++ {
+		b[i], b[len(b)-i-1] = b[len(b)-i-1], b[i]
+	}
+	return b
+}
+
+func hash(data []byte) [32]byte {
+	h := sha256.New()
+	h.Reset()
+
+	var b [32]byte
+
+	// The hash interface never returns an error, for that reason
+	// we are not handling the error below. For reference, it is
+	// stated here https://golang.org/pkg/hash/#Hash
+
+	// #nosec G104
+	h.Write(data)
+	h.Sum(b[:0])
+
+	return b
 }
