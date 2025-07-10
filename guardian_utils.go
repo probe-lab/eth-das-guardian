@@ -4,22 +4,8 @@ import (
 	"fmt"
 	mrand "math/rand"
 
-	"github.com/OffchainLabs/prysm/v6/encoding/bytesutil"
-	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 	log "github.com/sirupsen/logrus"
 )
-
-func computeForkDigest(forkV []byte, valRoots []byte) ([]byte, error) {
-	r, err := (&pb.ForkData{
-		CurrentVersion:        forkV,
-		GenesisValidatorsRoot: valRoots,
-	}).HashTreeRoot()
-	if err != nil {
-		return []byte{}, err
-	}
-	digest := bytesutil.ToBytes4(r[:])
-	return digest[:], nil
-}
 
 func prettyLogrusFields(logger log.FieldLogger, msg string, fields map[string]any) {
 	logger.Info(msg)

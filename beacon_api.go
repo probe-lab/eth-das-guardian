@@ -2,6 +2,7 @@ package dasguardian
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strconv"
 	"time"
@@ -39,6 +40,7 @@ type BeaconAPIImpl struct {
 	cfg    BeaconAPIConfig
 	apiCli *api.Client
 
+	specs         map[string]any
 	headState     *api.PeerDASstate
 	forkSchedules api.ForkSchedule
 	fuluForkEpoch int
@@ -67,6 +69,13 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		return fmt.Errorf("connection to %s was stablished, but not active - %s", b.cfg.Endpoint, err.Error())
 	}
 	b.cfg.Logger.Info("connected to the beacon API...")
+
+	// get the config specs from the apiCli
+	specs, err := b.apiCli.GetConfigSpecs(ctx)
+	if err != nil {
+		return err
+	}
+	b.specs = specs
 
 	// get the network configuration from the apiCli
 	forkSchedules, err := b.apiCli.GetNetworkConfig(ctx)
@@ -127,12 +136,94 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	return nil
 }
 
+type BlobScheduleEntry struct {
+	Epoch            uint64
+	MaxBlobsPerBlock uint64
+}
+
 func (b *BeaconAPIImpl) GetForkDigest() ([]byte, error) {
-	forkDigest, err := computeForkDigest(
-		b.headState.Data.Fork.CurrentVersion[:],
-		b.headState.Data.GenesisValidatorsRoot[:],
-	)
-	return forkDigest, err
+	slotsPerEpoch, ok := b.specs["SLOTS_PER_EPOCH"].(uint64)
+	if !ok {
+		slotsPerEpoch = 32
+	}
+
+	currentEpoch := uint64(b.headState.Data.Slot) / slotsPerEpoch
+
+	electraForkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64)
+	if !ok {
+		electraForkEpoch = 0
+	}
+
+	maxBlobsPerBlockElectra, ok := b.specs["MAX_BLOBS_PER_BLOCK_ELECTRA"].(uint64)
+	if !ok {
+		maxBlobsPerBlockElectra = 0
+	}
+
+	currentBlobParams := BlobScheduleEntry{
+		Epoch:            electraForkEpoch,
+		MaxBlobsPerBlock: maxBlobsPerBlockElectra,
+	}
+
+	blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("blob schedule not found")
+	}
+
+	for _, blobScheduleEntry := range blobSchedule {
+		blobScheduleMap := blobScheduleEntry.(map[string]any)
+		epoch, ok := blobScheduleMap["EPOCH"].(uint64)
+		if !ok {
+			continue
+		}
+
+		if epoch <= currentEpoch {
+			currentBlobParams.Epoch = epoch
+			currentBlobParams.MaxBlobsPerBlock = blobScheduleMap["MAX_BLOBS_PER_BLOCK"].(uint64)
+		} else {
+			break
+		}
+	}
+
+	forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, b.headState.Data.Fork.CurrentVersion, &currentBlobParams)
+	return forkDigest[:], nil
+}
+
+func (b *BeaconAPIImpl) ComputeForkDigest(genesisValidatorsRoot phase0.Root, forkVersion phase0.Version, blobParams *BlobScheduleEntry) phase0.ForkDigest {
+	forkData := phase0.ForkData{
+		CurrentVersion:        forkVersion,
+		GenesisValidatorsRoot: genesisValidatorsRoot,
+	}
+
+	forkDataRoot, _ := forkData.HashTreeRoot()
+
+	// For Fulu fork and later, modify the fork digest with blob parameters
+	if blobParams != nil {
+		// serialize epoch and max_blobs_per_block as uint64 little-endian
+		epochBytes := make([]byte, 8)
+		maxBlobsBytes := make([]byte, 8)
+		for i := 0; i < 8; i++ {
+			epochBytes[i] = byte((blobParams.Epoch >> (8 * i)) & 0xff)
+			maxBlobsBytes[i] = byte((blobParams.MaxBlobsPerBlock >> (8 * i)) & 0xff)
+		}
+		blobParamBytes := append(epochBytes, maxBlobsBytes...)
+
+		blobParamHash := [32]byte{}
+		{
+			h := sha256.New()
+			h.Write(blobParamBytes)
+			copy(blobParamHash[:], h.Sum(nil))
+		}
+
+		// xor baseDigest with first 4 bytes of blobParamHash
+		forkDigest := make([]byte, 4)
+		for i := 0; i < 4; i++ {
+			forkDigest[i] = forkDataRoot[i] ^ blobParamHash[i]
+		}
+
+		return phase0.ForkDigest(forkDigest)
+	}
+
+	return phase0.ForkDigest(forkDataRoot[:4])
 }
 
 func (b *BeaconAPIImpl) GetFinalizedCheckpoint() *phase0.Checkpoint {

@@ -253,14 +253,21 @@ func (g *DasGuardian) init(ctx context.Context) error {
 	return nil
 }
 
-func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) (DASEvaluationResult, error) {
+type DasGuardianScanResult struct {
+	Libp2pInfo     map[string]any
+	RemoteStatus   *pb.StatusV2
+	RemoteMetadata *pb.MetaDataV2
+	EvalResult     DASEvaluationResult
+}
+
+func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
 	return g.scan(ctx, ethNode)
 }
 
-func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNodes []*enode.Node) ([]DASEvaluationResult, error) {
-	dasResults := make([]DASEvaluationResult, 0, len(ethNodes))
+func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNodes []*enode.Node) ([]*DasGuardianScanResult, error) {
+	dasResults := make([]*DasGuardianScanResult, 0, len(ethNodes))
 	scanC := make(chan *enode.Node, concurrency)
-	resultC := make(chan DASEvaluationResult)
+	resultC := make(chan *DasGuardianScanResult)
 
 	closeScan := make(chan struct{})
 	closeResult := make(chan struct{})
@@ -277,9 +284,9 @@ func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNo
 		case ethNode := <-scanC:
 			res, err := g.scan(ctx, ethNode)
 			if err != nil {
-				log.WithField("node_id", ethNode.ID().String()).Error("")
+				g.cfg.Logger.WithField("node_id", ethNode.ID().String()).Error("")
 			}
-			res.Error = err
+			res.EvalResult.Error = err
 			resultC <- res
 		case <-closeScan:
 			return
@@ -320,25 +327,25 @@ func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNo
 	return dasResults, nil
 }
 
-func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluationResult, error) {
+func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
 	// get the info from the ENR
 	enodeAddr, err := ParseMaddrFromEnode(ethNode)
 	if err != nil {
-		return DASEvaluationResult{}, err
+		return nil, err
 	}
 
 	enrCustody, err := GetCustodyFromEnr(ethNode)
 	if err != nil {
-		log.Warn(err.Error())
+		g.cfg.Logger.Warn(err.Error())
 	}
 	enrCustodyGroups, err := CustodyColumnsSlice(ethNode.ID(), enrCustody, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
 	if err != nil {
-		return DASEvaluationResult{}, err
+		return nil, err
 	}
 
 	// connection attempt using the libp2p host
 	if err := g.ConnectNode(ctx, enodeAddr); err != nil {
-		return DASEvaluationResult{}, err
+		return nil, err
 	}
 
 	// extract the necessary information from the ethNode
@@ -347,32 +354,39 @@ func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluat
 	// exchange ping
 	startT := time.Now()
 	if err := g.rpcServ.Ping(ctx, enodeAddr.ID); err != nil {
-		return DASEvaluationResult{}, nil
+		return nil, err
 	}
 	libp2pInfo["ping_rtt"] = time.Since(startT)
 	prettyLogrusFields(g.cfg.Logger, "libp2p info...", libp2pInfo)
 
+	scanResult := &DasGuardianScanResult{
+		Libp2pInfo: libp2pInfo,
+	}
+
 	// exchange beacon-status
 	remoteStatus := g.requestBeaconStatus(ctx, enodeAddr.ID)
 	if remoteStatus == nil {
-		return DASEvaluationResult{}, fmt.Errorf("failed to get beacon status from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", enodeAddr.ID)
 	}
+	scanResult.RemoteStatus = remoteStatus
 	statusLogs := g.visualizeBeaconStatus(remoteStatus)
 
 	// exchange beacon-metadata
 	remoteMetadata := g.requestBeaconMetadata(ctx, enodeAddr.ID)
 	if remoteMetadata == nil {
-		return DASEvaluationResult{}, fmt.Errorf("failed to get beacon metadata from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", enodeAddr.ID)
 	}
+
+	scanResult.RemoteMetadata = remoteMetadata
 	metadataLogs := g.visualizeBeaconMetadata(remoteMetadata)
 	metadataCustodyIdxs, err := CustodyColumnsSlice(ethNode.ID(), remoteMetadata.CustodyGroupCount, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
 	if err != nil {
-		return DASEvaluationResult{}, errors.Wrap(err, "wrong cuystody subnet")
+		return scanResult, errors.Wrap(err, "wrong cuystody subnet")
 	}
 
 	// compare enr custody to metadata one
 	if enrCustody != remoteMetadata.CustodyGroupCount {
-		log.Warnf("enr custody (%d) mismatches metadata RPC one (%d)", enrCustody, remoteMetadata.CustodyGroupCount)
+		g.cfg.Logger.Warnf("enr custody (%d) mismatches metadata RPC one (%d)", enrCustody, remoteMetadata.CustodyGroupCount)
 	}
 
 	prettyLogrusFields(g.cfg.Logger, "scanning eth-node...", map[string]any{
@@ -402,17 +416,23 @@ func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (DASEvaluat
 	// get the blocks so that we can compare the obtained results with the chain ones
 	bBlocks, err := g.fetchSlotBlocks(ctx, randomSlots)
 	if err != nil {
-		return DASEvaluationResult{}, err
+		return scanResult, err
 	}
 
 	// DAS??!?
 	dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, enodeAddr.ID, randomSlots, metadataCustodyIdxs[:])
 	if err != nil {
-		return DASEvaluationResult{}, err
+		return scanResult, err
 	}
 
 	// evaluate and return the results
-	return evaluateColumnResponses(g.cfg.Logger, ethNode.ID().String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
+	evalResult, err := evaluateColumnResponses(g.cfg.Logger, ethNode.ID().String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
+	if err != nil {
+		return scanResult, err
+	}
+
+	scanResult.EvalResult = evalResult
+	return scanResult, nil
 }
 
 func (g *DasGuardian) MonitorEndpoint(ctx context.Context) error {
@@ -422,7 +442,7 @@ func (g *DasGuardian) MonitorEndpoint(ctx context.Context) error {
 			return nil
 
 		case <-time.After(12 * time.Second):
-			log.Info("monitoring node...")
+			g.cfg.Logger.Info("monitoring node...")
 			err := g.monitorEndpoint(ctx)
 			if err != nil {
 				return err
@@ -444,7 +464,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 		return err
 	}
 
-	log.WithFields(log.Fields{
+	g.cfg.Logger.WithFields(log.Fields{
 		"peer-id":     nodeInfo.Data.PeerID,
 		"node-id":     enrNode.ID().String(),
 		"p2p-addrs":   nodeInfo.Data.Maddrs,
@@ -460,7 +480,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	}
 	apiCustody, _ := nodeInfo.CustodyInt()
 	if enrCustody != uint64(apiCustody) {
-		log.WithFields(log.Fields{
+		g.cfg.Logger.WithFields(log.Fields{
 			"enr": enrCustody,
 			"api": apiCustody,
 		}).Warn("enr and api custody don't match")
@@ -470,7 +490,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	enrAttnets := GetAttnetsFromEnr(enrNode)
 	apiAttnets := nodeInfo.Attnets()
 	if enrAttnets != apiAttnets {
-		log.WithFields(log.Fields{
+		g.cfg.Logger.WithFields(log.Fields{
 			"enr": enrAttnets,
 			"api": apiAttnets,
 		}).Warn("enr and api attnets don't match")
@@ -480,7 +500,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	enrSyncnets := GetSyncnetsFromEnr(enrNode)
 	apiSyncnets := nodeInfo.Syncnets()
 	if enrAttnets != apiAttnets {
-		log.WithFields(log.Fields{
+		g.cfg.Logger.WithFields(log.Fields{
 			"enr": enrSyncnets,
 			"api": apiSyncnets,
 		}).Warn("enr and api syncnets don't match")
@@ -493,16 +513,16 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 		return err
 	}
 
-	for s, slotRes := range res.ValidSlot {
+	for s, slotRes := range res.EvalResult.ValidSlot {
 		if !slotRes {
-			log.Errorf("the monitoring node didn't have the data for slot")
-			invalidSlots = append(invalidSlots, res.Slots[s])
+			g.cfg.Logger.Errorf("the monitoring node didn't have the data for slot")
+			invalidSlots = append(invalidSlots, res.EvalResult.Slots[s])
 		}
 	}
 	if len(invalidSlots) > 0 {
 		return fmt.Errorf("remote node didn't provide complete data-columns for slots %v", invalidSlots)
 	}
-	log.Info("node monitoring done")
+	g.cfg.Logger.Info("node monitoring done")
 	return nil
 }
 
@@ -527,7 +547,7 @@ func (g *DasGuardian) ConnectNode(ctx context.Context, pInfo *peer.AddrInfo) err
 		defer connCancel()
 		startT := time.Now()
 		if err := g.host.Connect(connCtx, *pInfo); err != nil {
-			log.Warnf("conn attempt %d failed - %s", r, err.Error())
+			g.cfg.Logger.Warnf("conn attempt %d failed - %s", r, err.Error())
 			select {
 			case <-ctx.Done():
 				return fmt.Errorf("main context died %s", ctx.Err().Error())
@@ -535,7 +555,7 @@ func (g *DasGuardian) ConnectNode(ctx context.Context, pInfo *peer.AddrInfo) err
 				continue
 			}
 		} else {
-			log.Info("connected to remote node...")
+			g.cfg.Logger.Info("connected to remote node...")
 			return nil
 		}
 	}
@@ -586,7 +606,7 @@ func (g *DasGuardian) visualizeBeaconStatus(status *pb.StatusV2) map[string]any 
 func (g *DasGuardian) requestBeaconStatus(ctx context.Context, pid peer.ID) *pb.StatusV2 {
 	status, err := g.rpcServ.StatusV2(ctx, pid)
 	if err != nil {
-		log.Warnf("error requesting beacon-status-v2 - %s", err.Error())
+		g.cfg.Logger.Warnf("error requesting beacon-status-v2 - %s", err.Error())
 	}
 	return status
 }
@@ -607,7 +627,7 @@ func (g *DasGuardian) visualizeBeaconMetadata(metadata *pb.MetaDataV2) map[strin
 func (g *DasGuardian) requestBeaconMetadata(ctx context.Context, pid peer.ID) *pb.MetaDataV2 {
 	metadata, err := g.rpcServ.MetaDataV3(ctx, pid)
 	if err != nil {
-		log.Warnf("error requesting beacon-metadata-v3 - %s", err.Error())
+		g.cfg.Logger.Warnf("error requesting beacon-metadata-v3 - %s", err.Error())
 	}
 	return metadata
 }
@@ -649,7 +669,7 @@ func (g *DasGuardian) composeLocalBeaconMetadata() *pb.MetaDataV2 {
 }
 
 func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, slots []uint64, columnIdxs []uint64) ([][]*pb.DataColumnSidecar, error) {
-	log.WithFields(log.Fields{
+	g.cfg.Logger.WithFields(log.Fields{
 		"slots":   len(slots),
 		"columns": len(columnIdxs),
 	}).Info("sampling node for...")
@@ -663,13 +683,13 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 		// make the request per each column
 		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, slot, columnIdxs)
 		if err != nil {
-			log.Error(err)
+			g.cfg.Logger.Error(err)
 			return dataColumns, err
 		}
 		dataColumns[s] = cols
 
 		// compose the results
-		log.WithFields(log.Fields{
+		g.cfg.Logger.WithFields(log.Fields{
 			"req-duration": duration,
 			"slot":         slot,
 			"das-result":   fmt.Sprintf("%d/%d columns", len(cols), len(columnIdxs)),
@@ -677,14 +697,14 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 	}
 
 	opDur := time.Since(startT)
-	log.WithFields(log.Fields{
+	g.cfg.Logger.WithFields(log.Fields{
 		"duration": opDur,
 	}).Info("node custody sampling done...")
 	return dataColumns, nil
 }
 
 func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]*spec.VersionedSignedBeaconBlock, error) {
-	log.WithFields(log.Fields{
+	g.cfg.Logger.WithFields(log.Fields{
 		"slots": slots,
 	}).Info("requesting slot-blocks from beacon API...")
 	blocks := make([]*spec.VersionedSignedBeaconBlock, len(slots))

@@ -76,7 +76,7 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		return res.LogVisualization(logger)
+		return res.EvalResult.LogVisualization(logger)
 
 	default:
 		ethNodes := make([]*enode.Node, len(scanConfig.NodeKeys))
@@ -98,7 +98,7 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 		}
 		// TODO: hardcoded visualization
 		for _, r := range res {
-			err = r.LogVisualization(logger)
+			err = r.EvalResult.LogVisualization(logger)
 			if err != nil {
 				log.Error(err)
 			}
