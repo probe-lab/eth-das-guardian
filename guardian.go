@@ -219,7 +219,7 @@ func (g *DasGuardian) init(ctx context.Context) error {
 	})
 
 	// subscribe to main topics
-	forkDigest, err := g.apiCli.GetForkDigest()
+	forkDigest, err := g.apiCli.GetForkDigest(g.headStatus.HeadSlot)
 	if err != nil {
 		return err
 	}
@@ -627,8 +627,13 @@ func (g *DasGuardian) requestBeaconMetadata(ctx context.Context, pid peer.ID) *M
 }
 
 func (g *DasGuardian) composeLocalBeaconStatus() (*StatusV2, error) {
+	slot := uint64(0)
+	if headSlot := g.apiCli.GetLatestBlockHeader(); headSlot != nil {
+		slot = uint64(headSlot.Slot)
+	}
+
 	// fork digest
-	forkDigest, err := g.apiCli.GetForkDigest()
+	forkDigest, err := g.apiCli.GetForkDigest(slot)
 	if err != nil {
 		return nil, err
 	}
