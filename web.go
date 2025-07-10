@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 	"github.com/libp2p/go-libp2p/core/peer"
 	log "github.com/sirupsen/logrus"
 )
@@ -815,7 +814,7 @@ func scanSingleNode(apiEndpoint, nodeKey string, samples uint64) NodeScanResult 
 	return result
 }
 
-func performDASCheck(ctx context.Context, guardian *DasGuardian, status *pb.StatusV2, custodyIdxs []uint64, peerID peer.ID, samples uint64) ([][]string, []string) {
+func performDASCheck(ctx context.Context, guardian *DasGuardian, status *StatusV2, custodyIdxs []uint64, peerID peer.ID, samples uint64) ([][]string, []string) {
 	// Select random slots for sampling
 	randomSlots := selectRandomSlotsForRange(
 		int64(status.HeadSlot),
@@ -879,13 +878,13 @@ func performDASCheck(ctx context.Context, guardian *DasGuardian, status *pb.Stat
 		} else {
 			for c, dataCol := range dataCols[s] {
 				if c < len(custodyIdxs) && len(bBlocks) > s {
-					blobKzgCommitments := bBlocks[s].Data.Message.Body.BlobKZGCommitments
+					blobKzgCommitments, _ := bBlocks[s].BlobKZGCommitments()
 					blobCount := len(blobKzgCommitments)
 
 					validCommit := 0
 					for _, colCom := range dataCol.KzgCommitments {
 						for _, kzgCom := range blobKzgCommitments {
-							if matchingBytes(colCom, kzgCom[:]) {
+							if matchingBytes(colCom[:], kzgCom[:]) {
 								validCommit++
 							}
 						}
