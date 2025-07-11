@@ -33,6 +33,16 @@ var monitorFlags = []cli.Flag{
 }
 
 func monitorAction(ctx context.Context, cmd *cli.Command) error {
+	log.WithFields(log.Fields{
+		"beacon-api":         rootConfig.BeaconAPIendpoint,
+		"libp2p-host":        rootConfig.Libp2pHost,
+		"libp2p-port":        rootConfig.Libp2pPort,
+		"connection-retries": rootConfig.ConnectionRetries,
+		"connection-timeout": rootConfig.ConnectionTimeout,
+		"init-timeout":       rootConfig.InitTimeout,
+		"wait-fulu":          rootConfig.WaitForFulu,
+	}).Info("running das-guardian")
+
 	logger := log.WithFields(log.Fields{})
 	logger.WithFields(log.Fields{
 		"freq": monitorConfig.MonitorFrequency,
