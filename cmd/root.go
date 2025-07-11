@@ -85,16 +85,6 @@ var rootFlags = []cli.Flag{
 }
 
 func main() {
-	log.WithFields(log.Fields{
-		"beacon-api":         rootConfig.BeaconAPIendpoint,
-		"libp2p-host":        rootConfig.Libp2pHost,
-		"libp2p-port":        rootConfig.Libp2pPort,
-		"connection-retries": rootConfig.ConnectionRetries,
-		"connection-timeout": rootConfig.ConnectionTimeout,
-		"init-timeout":       rootConfig.InitTimeout,
-		"wait-fulu":          rootConfig.WaitForFulu,
-	}).Info("running das-guardian")
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
