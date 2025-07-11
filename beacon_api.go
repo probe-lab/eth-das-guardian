@@ -203,7 +203,7 @@ func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 			maxBlobsPerBlockElectra = 0
 		}
 
-		currentBlobParams := BlobScheduleEntry{
+		currentBlobParams = &BlobScheduleEntry{
 			Epoch:            b.specs["ELECTRA_FORK_EPOCH"].(uint64),
 			MaxBlobsPerBlock: maxBlobsPerBlockElectra,
 		}
