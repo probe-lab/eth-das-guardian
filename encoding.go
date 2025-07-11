@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	dynssz "github.com/pk910/dynamic-ssz"
 	errors "github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 // Maximum message sizes
@@ -30,6 +31,22 @@ const (
 )
 
 var sszCodec = dynssz.NewDynSsz(map[string]any{})
+
+// Helper function to get response code names for debugging
+func getResponseCodeName(code byte) string {
+	switch code {
+	case ResponseCodeSuccess:
+		return "SUCCESS"
+	case ResponseCodeInvalidRequest:
+		return "INVALID_REQUEST"
+	case ResponseCodeServerError:
+		return "SERVER_ERROR"
+	case ResponseCodeResourceExhausted:
+		return "RESOURCE_EXHAUSTED"
+	default:
+		return "UNKNOWN"
+	}
+}
 
 // Sync pools for snappy readers and writers
 var (
@@ -243,7 +260,22 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 		return fmt.Errorf("failed to read response code: %w", err)
 	}
 
+	if log.GetLevel() >= log.DebugLevel {
+		log.WithFields(log.Fields{
+			"response_code": code[0],
+			"response_code_hex": fmt.Sprintf("0x%02x", code[0]),
+			"is_success": code[0] == ResponseCodeSuccess,
+		}).Debug("Raw response code received")
+	}
+
 	if code[0] != ResponseCodeSuccess {
+		if log.GetLevel() >= log.DebugLevel {
+			errorType := getResponseCodeName(code[0])
+			log.WithFields(log.Fields{
+				"response_code": code[0],
+				"error_type": errorType,
+			}).Debug("Non-success response code received")
+		}
 		return fmt.Errorf("RPC error code: %d", code[0])
 	}
 
@@ -251,6 +283,12 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 	uncompressedLength, err := readVarint(stream)
 	if err != nil {
 		return fmt.Errorf("failed to read uncompressed length: %w", err)
+	}
+
+	if log.GetLevel() >= log.DebugLevel {
+		log.WithFields(log.Fields{
+			"uncompressed_length": uncompressedLength,
+		}).Debug("Read uncompressed length from response")
 	}
 
 	// Validate uncompressed size
@@ -277,9 +315,30 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 		return fmt.Errorf("failed to read decompressed data: %w", err)
 	}
 
+	// Log the raw response data
+	if log.GetLevel() >= log.DebugLevel {
+		log.WithFields(log.Fields{
+			"uncompressed_length": uncompressedLength,
+			"raw_data_hex": fmt.Sprintf("0x%x", data),
+			"raw_data_len": len(data),
+		}).Debug("Raw response data received")
+	}
+
 	// Unmarshal from SSZ
 	if err := sszCodec.UnmarshalSSZ(resp, data); err != nil {
+		if log.GetLevel() >= log.DebugLevel {
+			log.WithFields(log.Fields{
+				"unmarshal_error": err,
+				"raw_data_hex": fmt.Sprintf("0x%x", data),
+			}).Debug("Failed to unmarshal SSZ response")
+		}
 		return fmt.Errorf("failed to unmarshal SSZ: %w", err)
+	}
+
+	if log.GetLevel() >= log.DebugLevel {
+		log.WithFields(log.Fields{
+			"response_type": fmt.Sprintf("%T", resp),
+		}).Debug("Successfully unmarshaled response")
 	}
 
 	return nil

@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	log "github.com/sirupsen/logrus"
 )
 
 const PeerDAScolumns = 128
@@ -168,22 +169,81 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (
 		return nil, fmt.Errorf("the given local-metadata-v3 is a nil pointer")
 	}
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
+		if log.GetLevel() >= log.DebugLevel {
+			r.cfg.Logger.WithFields(log.Fields{
+				"peer_id": pid.String(),
+				"error":   err,
+			}).Debug("Failed to ensure connection to peer for MetaDataV3")
+		}
 		return nil, err
 	}
+	
+	if log.GetLevel() >= log.DebugLevel {
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id":  pid.String(),
+			"protocol": RPCMetaDataTopicV3,
+		}).Debug("Creating MetaDataV3 stream")
+	}
+	
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV3))
 	if err != nil {
+		if log.GetLevel() >= log.DebugLevel {
+			r.cfg.Logger.WithFields(log.Fields{
+				"peer_id":  pid.String(),
+				"protocol": RPCMetaDataTopicV3,
+				"error":    err,
+			}).Debug("Failed to create MetaDataV3 stream")
+		}
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV3, pid, err)
 	}
 	defer stream.Reset()
 
+	if log.GetLevel() >= log.DebugLevel {
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id": pid.String(),
+			"request_seq_number": md.SeqNumber,
+			"request_attnets": fmt.Sprintf("0x%x", md.Attnets),
+			"request_syncnets": fmt.Sprintf("0x%x", md.Syncnets),
+			"request_custody_group_count": md.CustodyGroupCount,
+		}).Debug("Writing MetaDataV3 request with payload")
+	}
+
 	if err := r.writeRequest(stream, md); err != nil {
+		if log.GetLevel() >= log.DebugLevel {
+			r.cfg.Logger.WithFields(log.Fields{
+				"peer_id": pid.String(),
+				"error":   err,
+			}).Debug("Failed to write MetaDataV3 request")
+		}
 		return nil, fmt.Errorf("write metadata-v3 request: %w", err)
 	}
 
-	// read and decode status response
+	if log.GetLevel() >= log.DebugLevel {
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id": pid.String(),
+		}).Debug("MetaDataV3 request written, reading response")
+	}
+
+	// read and decode status response with detailed logging
 	resp = &MetaDataV3{}
 	if err := r.readResponse(stream, resp); err != nil {
+		if log.GetLevel() >= log.DebugLevel {
+			r.cfg.Logger.WithFields(log.Fields{
+				"peer_id": pid.String(),
+				"error":   err,
+			}).Debug("Failed to read MetaDataV3 response")
+		}
 		return nil, fmt.Errorf("read metadata-v3 response: %w", err)
+	}
+
+	if log.GetLevel() >= log.DebugLevel {
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id":             pid.String(),
+			"response_seq_number":          resp.SeqNumber,
+			"response_attnets": fmt.Sprintf("0x%x", resp.Attnets),
+			"response_syncnets": fmt.Sprintf("0x%x", resp.Syncnets),
+			"response_custody_group_count": resp.CustodyGroupCount,
+		}).Debug("Successfully received MetaDataV3 response with full payload")
 	}
 
 	// we have the data that we want, so ignore error here
