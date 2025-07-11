@@ -180,18 +180,18 @@ func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 	var isFuluActive bool
 	var currentBlobParams *BlobScheduleEntry
 
-	if forkEpoch, ok := b.specs["FULU_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	if forkEpoch, ok := b.specs["FULU_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["FULU_FORK_VERSION"].(phase0.Version)
 		isFuluActive = true
-	} else if forkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["ELECTRA_FORK_VERSION"].(phase0.Version)
-	} else if forkEpoch, ok := b.specs["DENEB_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["DENEB_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["DENEB_FORK_VERSION"].(phase0.Version)
-	} else if forkEpoch, ok := b.specs["CAPELLA_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["CAPELLA_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["CAPELLA_FORK_VERSION"].(phase0.Version)
-	} else if forkEpoch, ok := b.specs["BELLATRIX_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["BELLATRIX_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["BELLATRIX_FORK_VERSION"].(phase0.Version)
-	} else if forkEpoch, ok := b.specs["ALTAIR_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["ALTAIR_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["ALTAIR_FORK_VERSION"].(phase0.Version)
 	} else {
 		forkVersion = b.specs["GENESIS_FORK_VERSION"].(phase0.Version)
