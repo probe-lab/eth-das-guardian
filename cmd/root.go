@@ -85,6 +85,13 @@ var rootFlags = []cli.Flag{
 }
 
 func main() {
+	// Set log level from environment variable
+	if level := os.Getenv("LOGRUS_LEVEL"); level != "" {
+		if parsedLevel, err := log.ParseLevel(level); err == nil {
+			log.SetLevel(parsedLevel)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

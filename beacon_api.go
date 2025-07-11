@@ -10,6 +10,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/pkg/errors"
 	"github.com/probe-lab/eth-das-guardian/api"
 	log "github.com/sirupsen/logrus"
 )
@@ -72,12 +73,63 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	}
 	b.cfg.Logger.Info("connected to the beacon API...")
 
+	// Get node identity and ENR
+	nodeIdentity, err := b.apiCli.GetNodeIdentity(ctx)
+	if err != nil {
+		b.cfg.Logger.WithError(err).Warn("failed to get node identity")
+	} else {
+		b.cfg.Logger.WithFields(log.Fields{
+			"peer_id": nodeIdentity.Data.PeerID,
+			"enr":     nodeIdentity.Data.Enr,
+		}).Info("Beacon node identity")
+		
+		if len(nodeIdentity.Data.Maddrs) > 0 {
+			b.cfg.Logger.WithFields(log.Fields{
+				"p2p_addresses": nodeIdentity.Data.Maddrs,
+			}).Debug("Beacon node P2P addresses")
+		}
+	}
+
 	// get the config specs from the apiCli
 	specs, err := b.apiCli.GetConfigSpecs(ctx)
 	if err != nil {
 		return err
 	}
 	b.specs = specs
+	
+	// Get genesis data from the proper endpoint
+	genesisData, err := b.apiCli.GetGenesis(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get genesis data")
+	}
+	
+	// Add GENESIS_VALIDATORS_ROOT to specs from the genesis endpoint
+	b.specs["GENESIS_VALIDATORS_ROOT"] = genesisData.GenesisValidatorsRoot
+	
+	// Debug: log what we got from beacon API specs
+	if log.GetLevel() >= log.DebugLevel {
+		b.cfg.Logger.WithFields(log.Fields{
+			"specs_count": len(specs),
+			"has_genesis_validators_root": specs["GENESIS_VALIDATORS_ROOT"] != nil,
+			"genesis_validators_root": fmt.Sprintf("0x%x", genesisData.GenesisValidatorsRoot),
+		}).Debug("Beacon API specs and genesis data loaded")
+		
+		// Log a few important keys for debugging
+		for _, key := range []string{"GENESIS_VALIDATORS_ROOT", "GENESIS_FORK_VERSION", "DENEB_FORK_EPOCH", "ELECTRA_FORK_EPOCH", "FULU_FORK_EPOCH"} {
+			if val, exists := specs[key]; exists && val != nil {
+				b.cfg.Logger.WithFields(log.Fields{
+					"key": key,
+					"value": fmt.Sprintf("%v", val),
+				}).Debug("Important spec value")
+			} else {
+				b.cfg.Logger.WithFields(log.Fields{
+					"key": key,
+					"exists": exists,
+					"is_nil": val == nil,
+				}).Debug("Missing or nil spec value")
+			}
+		}
+	}
 
 	// get the network configuration from the apiCli
 	forkSchedules, err := b.apiCli.GetNetworkConfig(ctx)
@@ -176,22 +228,35 @@ func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 
 	currentEpoch := slot / slotsPerEpoch
 
+	// Use genesis validators root from specs (fetched from genesis endpoint)
+	genesisValidatorsRoot := b.specs["GENESIS_VALIDATORS_ROOT"].(phase0.Root)
+	
+	if log.GetLevel() >= log.DebugLevel {
+		b.cfg.Logger.WithFields(log.Fields{
+			"beacon_api_endpoint":      b.cfg.Endpoint,
+			"slot":                     slot,
+			"current_epoch":            currentEpoch,
+			"genesis_validators_root":  fmt.Sprintf("0x%x", genesisValidatorsRoot),
+			"slots_per_epoch":          slotsPerEpoch,
+		}).Debug("Beacon API network configuration")
+	}
+
 	var forkVersion phase0.Version
 	var isFuluActive bool
 	var currentBlobParams *BlobScheduleEntry
 
-	if forkEpoch, ok := b.specs["FULU_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	if forkEpoch, ok := b.specs["FULU_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["FULU_FORK_VERSION"].(phase0.Version)
 		isFuluActive = true
-	} else if forkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["ELECTRA_FORK_VERSION"].(phase0.Version)
-	} else if forkEpoch, ok := b.specs["DENEB_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["DENEB_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["DENEB_FORK_VERSION"].(phase0.Version)
-	} else if forkEpoch, ok := b.specs["CAPELLA_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["CAPELLA_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["CAPELLA_FORK_VERSION"].(phase0.Version)
-	} else if forkEpoch, ok := b.specs["BELLATRIX_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["BELLATRIX_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["BELLATRIX_FORK_VERSION"].(phase0.Version)
-	} else if forkEpoch, ok := b.specs["ALTAIR_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+	} else if forkEpoch, ok := b.specs["ALTAIR_FORK_EPOCH"].(uint64); ok && currentEpoch >= forkEpoch {
 		forkVersion = b.specs["ALTAIR_FORK_VERSION"].(phase0.Version)
 	} else {
 		forkVersion = b.specs["GENESIS_FORK_VERSION"].(phase0.Version)
@@ -203,9 +268,16 @@ func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 			maxBlobsPerBlockElectra = 0
 		}
 
-		currentBlobParams := BlobScheduleEntry{
+		currentBlobParams = &BlobScheduleEntry{
 			Epoch:            b.specs["ELECTRA_FORK_EPOCH"].(uint64),
 			MaxBlobsPerBlock: maxBlobsPerBlockElectra,
+		}
+		
+		if log.GetLevel() >= log.DebugLevel {
+			b.cfg.Logger.WithFields(log.Fields{
+				"electra_fork_epoch": b.specs["ELECTRA_FORK_EPOCH"].(uint64),
+				"max_blobs_per_block_electra": maxBlobsPerBlockElectra,
+			}).Debug("Initial BPO parameters set for Fulu")
 		}
 
 		blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
@@ -230,7 +302,27 @@ func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 		}
 	}
 
-	forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, forkVersion, currentBlobParams)
+	forkDigest := b.ComputeForkDigest(genesisValidatorsRoot, forkVersion, currentBlobParams)
+	
+	if log.GetLevel() >= log.DebugLevel {
+		b.cfg.Logger.WithFields(log.Fields{
+			"detected_fork_version": fmt.Sprintf("0x%x", forkVersion),
+			"is_fulu_active":        isFuluActive,
+			"final_fork_digest":     fmt.Sprintf("0x%x", forkDigest),
+			"genesis_validators_root": fmt.Sprintf("0x%x", genesisValidatorsRoot),
+			"current_epoch":         currentEpoch,
+			"slot":                  slot,
+			"blob_params_present":   currentBlobParams != nil,
+		}).Debug("Fork digest calculation result")
+		
+		if currentBlobParams != nil {
+			b.cfg.Logger.WithFields(log.Fields{
+				"blob_params_epoch": currentBlobParams.Epoch,
+				"blob_params_max_blobs": currentBlobParams.MaxBlobsPerBlock,
+			}).Debug("BPO blob parameters used in fork digest")
+		}
+	}
+	
 	return forkDigest[:], nil
 }
 
@@ -241,6 +333,16 @@ func (b *BeaconAPIImpl) ComputeForkDigest(genesisValidatorsRoot phase0.Root, for
 	}
 
 	forkDataRoot, _ := forkData.HashTreeRoot()
+	baseForkDigest := forkDataRoot[:4]
+	
+	if log.GetLevel() >= log.DebugLevel {
+		b.cfg.Logger.WithFields(log.Fields{
+			"fork_version": fmt.Sprintf("0x%x", forkVersion),
+			"genesis_validators_root": fmt.Sprintf("0x%x", genesisValidatorsRoot),
+			"fork_data_root": fmt.Sprintf("0x%x", forkDataRoot),
+			"base_fork_digest": fmt.Sprintf("0x%x", baseForkDigest),
+		}).Debug("Fork digest base calculation")
+	}
 
 	// For Fulu fork and later, modify the fork digest with blob parameters
 	if blobParams != nil {
@@ -265,10 +367,21 @@ func (b *BeaconAPIImpl) ComputeForkDigest(genesisValidatorsRoot phase0.Root, for
 		for i := 0; i < 4; i++ {
 			forkDigest[i] = forkDataRoot[i] ^ blobParamHash[i]
 		}
+		
+		if log.GetLevel() >= log.DebugLevel {
+			b.cfg.Logger.WithFields(log.Fields{
+				"blob_param_bytes": fmt.Sprintf("0x%x", blobParamBytes),
+				"blob_param_hash": fmt.Sprintf("0x%x", blobParamHash),
+				"bpo_fork_digest": fmt.Sprintf("0x%x", forkDigest),
+			}).Debug("BPO fork digest calculation")
+		}
 
 		return phase0.ForkDigest(forkDigest)
 	}
 
+	if log.GetLevel() >= log.DebugLevel {
+		b.cfg.Logger.Debug("Using base fork digest (no BPO)")
+	}
 	return phase0.ForkDigest(forkDataRoot[:4])
 }
 
