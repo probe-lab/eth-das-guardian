@@ -53,10 +53,9 @@ type MetaDataV1 struct {
 
 // MetaDataV2 represents the peer's metadata (Altair+ with syncnets)
 type MetaDataV2 struct {
-	SeqNumber         uint64
-	Attnets           [8]byte `ssz-size:"8"` // Bitvector[ATTESTATION_SUBNET_COUNT]
-	Syncnets          [1]byte `ssz-size:"1"` // Bitvector[SYNC_COMMITTEE_SUBNET_COUNT]
-	CustodyGroupCount uint64  // custody_group_count (cgc)
+	SeqNumber uint64
+	Attnets   [8]byte `ssz-size:"8"` // Bitvector[ATTESTATION_SUBNET_COUNT]
+	Syncnets  [1]byte `ssz-size:"1"` // Bitvector[SYNC_COMMITTEE_SUBNET_COUNT]
 }
 
 // MetaDataV3 represents the peer's metadata (Fulu+ with custody_group_count for PeerDAS)

@@ -45,10 +45,7 @@ type ReqRespConfig struct {
 	Logger       log.FieldLogger
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
-
-	// local metadata
-	BeaconStatus   *StatusV2
-	BeaconMetadata *MetaDataV2
+	ForkDigest   func(slot uint64) []byte
 }
 
 // ReqResp implements the request response domain of the eth2 RPC spec:

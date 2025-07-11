@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -22,10 +23,11 @@ const (
 
 type BeaconAPI interface {
 	Init(ctx context.Context) error
-	GetForkDigest() ([]byte, error)
+	GetStateVersion() string
+	GetForkDigest(slot uint64) ([]byte, error)
 	GetFinalizedCheckpoint() *phase0.Checkpoint
 	GetLatestBlockHeader() *phase0.BeaconBlockHeader
-	GetFuluForkEpoch() int
+	GetFuluForkEpoch() uint64
 	GetNodeIdentity(ctx context.Context) (*api.NodeIdentity, error)
 	GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error)
 }
@@ -43,7 +45,7 @@ type BeaconAPIImpl struct {
 	specs         map[string]any
 	headState     *api.PeerDASstate
 	forkSchedules api.ForkSchedule
-	fuluForkEpoch int
+	fuluForkEpoch uint64
 }
 
 func NewBeaconAPI(cfg BeaconAPIConfig) (BeaconAPI, error) {
@@ -82,7 +84,10 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	b.forkSchedules = forkSchedules.Data[FuluForkScheduleIdx] // we only need the fulu specifics
+
+	if len(forkSchedules.Data) > FuluForkScheduleIdx {
+		b.forkSchedules = forkSchedules.Data[FuluForkScheduleIdx] // we only need the fulu specifics
+	}
 
 	// compose and get the local Metadata
 	currentState, err := b.apiCli.GetPeerDASstate(ctx)
@@ -90,9 +95,15 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		return err
 	}
 
-	fuluForkEpoch, err := strconv.Atoi(b.forkSchedules.Epoch)
-	if err != nil {
-		return err
+	var fuluForkEpoch uint64
+
+	if len(forkSchedules.Data) > FuluForkScheduleIdx {
+		fuluForkEpoch, err = strconv.ParseUint(b.forkSchedules.Epoch, 10, 64)
+		if err != nil {
+			return err
+		}
+	} else {
+		fuluForkEpoch = math.MaxInt
 	}
 
 	b.fuluForkEpoch = fuluForkEpoch
@@ -109,11 +120,11 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		return fmt.Errorf("SLOTS_PER_EPOCH not found in beacon API config specs")
 	}
 
-	if (int(currentState.Data.Slot) / int(slotsPerEpoch)) < fuluForkEpoch {
-		secondsToFulu := time.Duration(((fuluForkEpoch*int(slotsPerEpoch))-int(currentState.Data.Slot))*int(secondsPerSlot)) * time.Second
+	if (uint64(currentState.Data.Slot)/slotsPerEpoch) < fuluForkEpoch && fuluForkEpoch != math.MaxInt {
+		secondsToFulu := time.Duration(((fuluForkEpoch*slotsPerEpoch)-uint64(currentState.Data.Slot))*secondsPerSlot) * time.Second
 		b.cfg.Logger.Warnf("network doesn't support fulu yet")
 		b.cfg.Logger.Warnf("current: (slot: %d epoch: %d - version: %s)", currentState.Data.Slot, (uint64(currentState.Data.Slot) / slotsPerEpoch), currentState.Version)
-		b.cfg.Logger.Warnf("target:  (slot: %d epoch: %d - missing: %d slots = %s)", fuluForkEpoch*int(slotsPerEpoch), fuluForkEpoch, (fuluForkEpoch*int(slotsPerEpoch))-int(currentState.Data.Slot), secondsToFulu)
+		b.cfg.Logger.Warnf("target:  (slot: %d epoch: %d - missing: %d slots = %s)", fuluForkEpoch*slotsPerEpoch, fuluForkEpoch, (fuluForkEpoch*slotsPerEpoch)-uint64(currentState.Data.Slot), secondsToFulu)
 		b.cfg.Logger.Infof("timing config: %d seconds per slot, %d slots per epoch (fetched from beacon API)", secondsPerSlot, slotsPerEpoch)
 
 		if b.cfg.WaitForFulu {
@@ -131,8 +142,6 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 					return err
 				}
 			}
-		} else {
-			return fmt.Errorf("network doesn't support fulu yet (slot: %d - %s)", currentState.Data.Slot, currentState.Version)
 		}
 	} else {
 		b.cfg.Logger.Info("fulu is supported")
@@ -150,57 +159,78 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	return nil
 }
 
+func (b *BeaconAPIImpl) GetStateVersion() string {
+	return b.headState.Version
+}
+
 type BlobScheduleEntry struct {
 	Epoch            uint64
 	MaxBlobsPerBlock uint64
 }
 
-func (b *BeaconAPIImpl) GetForkDigest() ([]byte, error) {
+func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 	slotsPerEpoch, ok := b.specs["SLOTS_PER_EPOCH"].(uint64)
 	if !ok {
 		slotsPerEpoch = 32
 	}
 
-	currentEpoch := uint64(b.headState.Data.Slot) / slotsPerEpoch
+	currentEpoch := slot / slotsPerEpoch
 
-	electraForkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64)
-	if !ok {
-		electraForkEpoch = 0
+	var forkVersion phase0.Version
+	var isFuluActive bool
+	var currentBlobParams *BlobScheduleEntry
+
+	if forkEpoch, ok := b.specs["FULU_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["FULU_FORK_VERSION"].(phase0.Version)
+		isFuluActive = true
+	} else if forkEpoch, ok := b.specs["ELECTRA_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["ELECTRA_FORK_VERSION"].(phase0.Version)
+	} else if forkEpoch, ok := b.specs["DENEB_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["DENEB_FORK_VERSION"].(phase0.Version)
+	} else if forkEpoch, ok := b.specs["CAPELLA_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["CAPELLA_FORK_VERSION"].(phase0.Version)
+	} else if forkEpoch, ok := b.specs["BELLATRIX_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["BELLATRIX_FORK_VERSION"].(phase0.Version)
+	} else if forkEpoch, ok := b.specs["ALTAIR_FORK_EPOCH"].(uint64); ok && slot >= forkEpoch {
+		forkVersion = b.specs["ALTAIR_FORK_VERSION"].(phase0.Version)
+	} else {
+		forkVersion = b.specs["GENESIS_FORK_VERSION"].(phase0.Version)
 	}
 
-	maxBlobsPerBlockElectra, ok := b.specs["MAX_BLOBS_PER_BLOCK_ELECTRA"].(uint64)
-	if !ok {
-		maxBlobsPerBlockElectra = 0
-	}
-
-	currentBlobParams := BlobScheduleEntry{
-		Epoch:            electraForkEpoch,
-		MaxBlobsPerBlock: maxBlobsPerBlockElectra,
-	}
-
-	blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
-	if !ok {
-		// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled
-		// Don't calculate fork digest with blob parameters in this case
-		b.cfg.Logger.Warn("BLOB_SCHEDULE not found (no BPO scheduled), using electra blob parameters")
-	}
-
-	for _, blobScheduleEntry := range blobSchedule {
-		blobScheduleMap := blobScheduleEntry.(map[string]any)
-		epoch, ok := blobScheduleMap["EPOCH"].(uint64)
+	if isFuluActive {
+		maxBlobsPerBlockElectra, ok := b.specs["MAX_BLOBS_PER_BLOCK_ELECTRA"].(uint64)
 		if !ok {
-			continue
+			maxBlobsPerBlockElectra = 0
 		}
 
-		if epoch <= currentEpoch {
-			currentBlobParams.Epoch = epoch
-			currentBlobParams.MaxBlobsPerBlock = blobScheduleMap["MAX_BLOBS_PER_BLOCK"].(uint64)
-		} else {
-			break
+		currentBlobParams := BlobScheduleEntry{
+			Epoch:            b.specs["ELECTRA_FORK_EPOCH"].(uint64),
+			MaxBlobsPerBlock: maxBlobsPerBlockElectra,
+		}
+
+		blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
+		if !ok {
+			// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled
+			b.cfg.Logger.Info("BLOB_SCHEDULE not found (no BPO scheduled), skipping blob parameter computation")
+		}
+
+		for _, blobScheduleEntry := range blobSchedule {
+			blobScheduleMap := blobScheduleEntry.(map[string]any)
+			epoch, ok := blobScheduleMap["EPOCH"].(uint64)
+			if !ok {
+				continue
+			}
+
+			if epoch <= currentEpoch {
+				currentBlobParams.Epoch = epoch
+				currentBlobParams.MaxBlobsPerBlock = blobScheduleMap["MAX_BLOBS_PER_BLOCK"].(uint64)
+			} else {
+				break
+			}
 		}
 	}
 
-	forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, b.headState.Data.Fork.CurrentVersion, &currentBlobParams)
+	forkDigest := b.ComputeForkDigest(b.headState.Data.GenesisValidatorsRoot, forkVersion, currentBlobParams)
 	return forkDigest[:], nil
 }
 
@@ -250,7 +280,7 @@ func (b *BeaconAPIImpl) GetLatestBlockHeader() *phase0.BeaconBlockHeader {
 	return b.headState.Data.LatestBlockHeader
 }
 
-func (b *BeaconAPIImpl) GetFuluForkEpoch() int {
+func (b *BeaconAPIImpl) GetFuluForkEpoch() uint64 {
 	return b.fuluForkEpoch
 }
 

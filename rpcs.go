@@ -76,7 +76,10 @@ func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID) (err error) {
 	return nil
 }
 
-func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID) (status *StatusV1, err error) {
+func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (status *StatusV1, err error) {
+	if isNill(st) {
+		return nil, fmt.Errorf("the given local-status-v1 is a nil pointer")
+	}
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
@@ -86,14 +89,14 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID) (status *StatusV1, 
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(stream, r.cfg.BeaconStatus); err != nil {
-		return nil, fmt.Errorf("write status request: %w", err)
+	if err := r.writeRequest(stream, st); err != nil {
+		return nil, fmt.Errorf("write status-v1 request: %w", err)
 	}
 
 	// read and decode status response
 	resp := &StatusV1{}
 	if err := r.readResponse(stream, resp); err != nil {
-		return nil, fmt.Errorf("read status response: %w", err)
+		return nil, fmt.Errorf("read status-v1 response: %w", err)
 	}
 
 	// we have the data that we want, so ignore error here
@@ -102,7 +105,10 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID) (status *StatusV1, 
 	return resp, nil
 }
 
-func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID) (status *StatusV2, err error) {
+func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (status *StatusV2, err error) {
+	if isNill(st) {
+		return nil, fmt.Errorf("the given local-status-v2 is a nil pointer")
+	}
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, errors.Wrap(err, "connection wasn't stablished when requesting status-v2")
 	}
@@ -112,14 +118,14 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID) (status *StatusV2, 
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(stream, r.cfg.BeaconStatus); err != nil {
-		return nil, fmt.Errorf("write status request: %w", err)
+	if err := r.writeRequest(stream, st); err != nil {
+		return nil, fmt.Errorf("write status-v2 request: %w", err)
 	}
 
 	// read and decode status response
 	resp := &StatusV2{}
 	if err := r.readResponse(stream, resp); err != nil {
-		return nil, fmt.Errorf("read status response: %w", err)
+		return nil, fmt.Errorf("read status-v2 response: %w", err)
 	}
 
 	// we have the data that we want, so ignore error here
@@ -128,24 +134,56 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID) (status *StatusV2, 
 	return resp, nil
 }
 
-func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV2, err error) {
+func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, md *MetaDataV2) (resp *MetaDataV2, err error) {
+	if isNill(md) {
+		return nil, fmt.Errorf("the given local-metadata-v2 is a nil pointer")
+	}
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV3))
+	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV2))
 	if err != nil {
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
 	defer stream.Reset()
 
-	if err := r.writeRequest(stream, r.cfg.BeaconMetadata); err != nil {
-		return nil, fmt.Errorf("write status request: %w", err)
+	if err := r.writeRequest(stream, md); err != nil {
+		return nil, fmt.Errorf("write metadata-v2 request: %w", err)
 	}
 
 	// read and decode status response
 	resp = &MetaDataV2{}
 	if err := r.readResponse(stream, resp); err != nil {
-		return nil, fmt.Errorf("read metadata response: %w", err)
+		return nil, fmt.Errorf("read metadata-v2 response: %w", err)
+	}
+
+	// we have the data that we want, so ignore error here
+	_ = stream.Close() // (both sides should actually be already closed)
+
+	return resp, nil
+}
+
+func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (resp *MetaDataV3, err error) {
+	if isNill(md) {
+		return nil, fmt.Errorf("the given local-metadata-v3 is a nil pointer")
+	}
+	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
+		return nil, err
+	}
+	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV3))
+	if err != nil {
+		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV3, pid, err)
+	}
+	defer stream.Reset()
+
+	if err := r.writeRequest(stream, md); err != nil {
+		return nil, fmt.Errorf("write metadata-v3 request: %w", err)
+	}
+
+	// read and decode status response
+	resp = &MetaDataV3{}
+	if err := r.readResponse(stream, resp); err != nil {
+		return nil, fmt.Errorf("read metadata-v3 response: %w", err)
 	}
 
 	// we have the data that we want, so ignore error here
@@ -182,7 +220,7 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 	for i := uint64(0); ; i++ {
 		isFirstChunk := i == 0
 		block := &deneb.SignedBeaconBlock{}
-		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.BeaconStatus.ForkDigest[:])
+		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigest(uint64(startSlot)+i))
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -220,7 +258,7 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 	for i := uint64(0); ; i++ {
 		isFirstChunk := i == 0
 		block := &deneb.SignedBeaconBlock{}
-		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.BeaconStatus.ForkDigest[:])
+		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigest(startSlot+i))
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -263,7 +301,7 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 
 	for i := uint64(0); ; /* no stop condition */ i++ {
 		dataCol := &DataColumnSidecarV1{}
-		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.BeaconStatus.ForkDigest[:])
+		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigest(slot))
 		if errors.Is(err, io.EOF) {
 			// End of stream.
 			break
