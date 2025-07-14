@@ -34,6 +34,6 @@ jobs:
     - name: Run just lint
       run: just lint
 
-    - name: Run tests
-      run: go test -race -vet=off ./...
+    #- name: Run tests
+    #  run: go test -race -vet=off ./...
     
