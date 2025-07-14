@@ -4,7 +4,6 @@ RUN apt-get update && apt-get install -y ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd -r appgroup && useradd -r -g appgroup appuser
 WORKDIR /app
-COPY --from=builder /app/das-guardian /app/das-guardian
 COPY build/* /app
 RUN chown -R appuser:appgroup /app
 USER appuser
