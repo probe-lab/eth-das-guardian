@@ -109,7 +109,7 @@ jobs:
     # build binaries
     - name: Build linux arm64 binary
       run: |
-        just build GOARCH=arm64 CC=/usr/bin/aarch64-linux-gnu-gcc
+        GOARCH=arm64 CC=/usr/bin/aarch64-linux-gnu-gcc just build
       env:
         RELEASE: ${{ inputs.release }}
 
@@ -217,7 +217,7 @@ jobs:
     # build binaries
     - name: Build macos arm64 binary
       run: |
-        just build GOARCH=arm64
+        GOARCH=arm64 just build
       env:
         RELEASE: ${{ inputs.release }}
 
