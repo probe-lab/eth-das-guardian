@@ -195,6 +195,10 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 	return guardian, nil
 }
 
+func (g *DasGuardian) Host() host.Host {
+	return g.host
+}
+
 func (g *DasGuardian) init(ctx context.Context) error {
 	// init beacon-api
 	if err := g.apiCli.Init(ctx); err != nil {
