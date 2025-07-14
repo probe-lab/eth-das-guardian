@@ -307,10 +307,6 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 			break
 		}
 
-		if dataCol == nil {
-			return time.Duration(0), dataColumns, errors.Wrap(err, "validation error")
-		}
-
 		if err != nil {
 			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar")
 		}
