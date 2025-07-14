@@ -249,6 +249,8 @@ func (r *ReqResp) writeResponse(stream network.Stream, resp any) error {
 
 // readResponse reads a response from the stream with SSZ+Snappy decoding
 func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
+	// Get the response type for debug logging
+	responseType := fmt.Sprintf("%T", resp)
 	// Set read deadline
 	if err := stream.SetReadDeadline(time.Now().Add(r.cfg.ReadTimeout)); err != nil {
 		return fmt.Errorf("failed to set read deadline: %w", err)
@@ -262,6 +264,7 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 
 	if log.GetLevel() >= log.DebugLevel {
 		log.WithFields(log.Fields{
+			"response_type": responseType,
 			"response_code": code[0],
 			"response_code_hex": fmt.Sprintf("0x%02x", code[0]),
 			"is_success": code[0] == ResponseCodeSuccess,
@@ -272,6 +275,7 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 		if log.GetLevel() >= log.DebugLevel {
 			errorType := getResponseCodeName(code[0])
 			log.WithFields(log.Fields{
+				"response_type": responseType,
 				"response_code": code[0],
 				"error_type": errorType,
 			}).Debug("Non-success response code received")
@@ -287,6 +291,7 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 
 	if log.GetLevel() >= log.DebugLevel {
 		log.WithFields(log.Fields{
+			"response_type": responseType,
 			"uncompressed_length": uncompressedLength,
 		}).Debug("Read uncompressed length from response")
 	}
@@ -318,6 +323,7 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 	// Log the raw response data
 	if log.GetLevel() >= log.DebugLevel {
 		log.WithFields(log.Fields{
+			"response_type": responseType,
 			"uncompressed_length": uncompressedLength,
 			"raw_data_hex": fmt.Sprintf("0x%x", data),
 			"raw_data_len": len(data),
@@ -328,6 +334,7 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 	if err := sszCodec.UnmarshalSSZ(resp, data); err != nil {
 		if log.GetLevel() >= log.DebugLevel {
 			log.WithFields(log.Fields{
+				"response_type": responseType,
 				"unmarshal_error": err,
 				"raw_data_hex": fmt.Sprintf("0x%x", data),
 			}).Debug("Failed to unmarshal SSZ response")
@@ -337,7 +344,7 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 
 	if log.GetLevel() >= log.DebugLevel {
 		log.WithFields(log.Fields{
-			"response_type": fmt.Sprintf("%T", resp),
+			"response_type": responseType,
 		}).Debug("Successfully unmarshaled response")
 	}
 
