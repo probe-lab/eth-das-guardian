@@ -56,7 +56,7 @@ jobs:
 
     # create draft release
     - name: Create latest release
-      uses: actions/create-release@v2
+      uses: actions/create-release@v1
       id: create_release
       with:
         draft: true
@@ -92,7 +92,7 @@ jobs:
         cd das-guardian_windows_amd64
         zip -r -q ../das-guardian_${{ inputs.version }}_windows_amd64.zip .
     - name: "Upload release artifact: das-guardian_${{ inputs.version }}_windows_amd64.zip"
-      uses: actions/upload-release-asset@v2
+      uses: actions/upload-release-asset@v1.0.2
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./das-guardian_${{ inputs.version }}_windows_amd64.zip
@@ -106,7 +106,7 @@ jobs:
         cd das-guardian_linux_amd64
         tar -czf ../das-guardian_${{ inputs.version }}_linux_amd64.tar.gz .
     - name: "Upload release artifact: das-guardian_${{ inputs.version }}_linux_amd64.tar.gz"
-      uses: actions/upload-release-asset@v2
+      uses: actions/upload-release-asset@v1.0.2
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./das-guardian_${{ inputs.version }}_linux_amd64.tar.gz
@@ -120,7 +120,7 @@ jobs:
         cd das-guardian_linux_arm64
         tar -czf ../das-guardian_${{ inputs.version }}_linux_arm64.tar.gz .
     - name: "Upload release artifact: das-guardian_${{ inputs.version }}_linux_arm64.tar.gz"
-      uses: actions/upload-release-asset@v2
+      uses: actions/upload-release-asset@v1.0.2
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./das-guardian_${{ inputs.version }}_linux_arm64.tar.gz
@@ -134,7 +134,7 @@ jobs:
         cd das-guardian_darwin_amd64
         tar -czf ../das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz .
     - name: "Upload release artifact: das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz"
-      uses: actions/upload-release-asset@v2
+      uses: actions/upload-release-asset@v1.0.2
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./das-guardian_${{ inputs.version }}_darwin_amd64.tar.gz
@@ -148,7 +148,7 @@ jobs:
         cd das-guardian_darwin_arm64
         tar -czf ../das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz .
     - name: "Upload release artifact: das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz"
-      uses: actions/upload-release-asset@v2
+      uses: actions/upload-release-asset@v1.0.2
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./das-guardian_${{ inputs.version }}_darwin_arm64.tar.gz
