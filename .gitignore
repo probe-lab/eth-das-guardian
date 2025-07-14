@@ -3,5 +3,4 @@ build/
 
 # scripts
 *.sh
-*.yaml
 notes.md
