@@ -70,6 +70,10 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	log.WithFields(log.Fields{
+		"peer-id": guardian.Host().ID().String(),
+	}).Info("das-guardian initialized")
+
 	switch len(scanConfig.NodeKeys) {
 	case 0:
 		return errors.New("no ENR keys were given")

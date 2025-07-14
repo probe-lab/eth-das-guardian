@@ -63,5 +63,10 @@ func monitorAction(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	log.WithFields(log.Fields{
+		"peer-id": guardian.Host().ID().String(),
+	}).Info("das-guardian initialized")
+
 	return guardian.MonitorEndpoint(ctx)
 }
