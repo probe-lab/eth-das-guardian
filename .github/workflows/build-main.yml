@@ -27,7 +27,7 @@ jobs:
       ref: ${{ github.sha }}
       release: "snapshot"
       docker: true
-      docker_repository: "pk910/das-guardian"
+      docker_repository: "probelab/eth-das-guardian"
       docker_tag_prefix: "main"
       additional_tags: "['main','main-latest']"
     secrets:
