@@ -56,6 +56,8 @@ const (
 	Attnets           = "attnets"
 	Syncnets          = "syncnets"
 	CustodyGroupCount = "custody_group_count"
+	StatusVersion     = "status_version"
+	MetadataVersion   = "metadata_version"
 	// values
 	DataColumnSidecarSubnetCount = uint64(128)
 )
@@ -686,12 +688,20 @@ func (g *DasGuardian) requestBeaconStatusV1(ctx context.Context, pid peer.ID) *S
 func (g *DasGuardian) visualizeBeaconStatusV2(status *StatusV2) map[string]any {
 	statusInfo := make(map[string]any)
 	if status != nil {
+		// Determine which version was used based on EarliestAvailableSlot
+		if status.EarliestAvailableSlot == ^uint64(0) {
+			statusInfo[StatusVersion] = "v1 (fallback)"
+			statusInfo[EarliestAvailableSlot] = "unavailable"
+		} else {
+			statusInfo[StatusVersion] = "v2"
+			statusInfo[EarliestAvailableSlot] = status.EarliestAvailableSlot
+		}
+		
 		statusInfo[ForkDigest] = fmt.Sprintf("0x%x", status.ForkDigest)
 		statusInfo[FinalizedEpoch] = status.FinalizedEpoch
 		statusInfo[FinalizedRoot] = fmt.Sprintf("0x%x", status.FinalizedRoot)
 		statusInfo[HeadRoot] = fmt.Sprintf("0x%x", status.HeadRoot)
 		statusInfo[HeadSlot] = status.HeadSlot
-		statusInfo[EarliestAvailableSlot] = status.EarliestAvailableSlot
 	} else {
 		statusInfo["beacon-status"] = "errored"
 	}
@@ -701,14 +711,35 @@ func (g *DasGuardian) visualizeBeaconStatusV2(status *StatusV2) map[string]any {
 func (g *DasGuardian) requestBeaconStatusV2(ctx context.Context, pid peer.ID) *StatusV2 {
 	status, err := g.rpcServ.StatusV2(ctx, pid, g.fuluStatus)
 	if err != nil {
-		g.cfg.Logger.Warnf("error requesting beacon-status-v2 - %s", err.Error())
+		g.cfg.Logger.Warnf("error requesting beacon-status-v2 - %s, falling back to status-v1", err.Error())
+		
+		// Fallback to status v1 if v2 fails
+		statusV1, err := g.rpcServ.StatusV1(ctx, pid, g.electraStatus)
+		if err != nil {
+			g.cfg.Logger.Warnf("error requesting beacon-status-v1 fallback - %s", err.Error())
+			return nil
+		}
+		
+		g.cfg.Logger.Debugf("successfully received beacon-status-v1 from peer %s", pid)
+		
+		// Convert StatusV1 to StatusV2 format
+		return &StatusV2{
+			ForkDigest:            statusV1.ForkDigest,
+			FinalizedRoot:         statusV1.FinalizedRoot,
+			FinalizedEpoch:        statusV1.FinalizedEpoch,
+			HeadRoot:              statusV1.HeadRoot,
+			HeadSlot:              statusV1.HeadSlot,
+			EarliestAvailableSlot: ^uint64(0), // Use max uint64 to indicate unavailable
+		}
 	}
+	g.cfg.Logger.Debugf("successfully received beacon-status-v2 from peer %s", pid)
 	return status
 }
 
 func (g *DasGuardian) visualizeBeaconMetadataV2(metadata *MetaDataV2) map[string]any {
 	metadataInfo := make(map[string]any)
 	if metadata != nil {
+		metadataInfo[MetadataVersion] = "v2"
 		metadataInfo[SeqNumber] = metadata.SeqNumber
 		metadataInfo[Attnets] = fmt.Sprintf("0x%x", metadata.Attnets)
 		metadataInfo[Syncnets] = fmt.Sprintf("0x%x", metadata.Syncnets)
@@ -722,6 +753,8 @@ func (g *DasGuardian) requestBeaconMetadataV2(ctx context.Context, pid peer.ID) 
 	metadata, err := g.rpcServ.MetaDataV2(ctx, pid, g.electraMetadata)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-metadata-v2 - %s", err.Error())
+	} else {
+		g.cfg.Logger.Debugf("successfully received beacon-metadata-v2 from peer %s", pid)
 	}
 	return metadata
 }
@@ -729,6 +762,7 @@ func (g *DasGuardian) requestBeaconMetadataV2(ctx context.Context, pid peer.ID) 
 func (g *DasGuardian) visualizeBeaconMetadataV3(metadata *MetaDataV3) map[string]any {
 	metadataInfo := make(map[string]any)
 	if metadata != nil {
+		metadataInfo[MetadataVersion] = "v3"
 		metadataInfo[SeqNumber] = metadata.SeqNumber
 		metadataInfo[Attnets] = fmt.Sprintf("0x%x", metadata.Attnets)
 		metadataInfo[Syncnets] = fmt.Sprintf("0x%x", metadata.Syncnets)
@@ -743,6 +777,8 @@ func (g *DasGuardian) requestBeaconMetadataV3(ctx context.Context, pid peer.ID) 
 	metadata, err := g.rpcServ.MetaDataV3(ctx, pid, g.fuluMetadata)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-metadata-v3 - %s", err.Error())
+	} else {
+		g.cfg.Logger.Debugf("successfully received beacon-metadata-v3 from peer %s", pid)
 	}
 	return metadata
 }
