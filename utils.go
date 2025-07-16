@@ -61,12 +61,6 @@ func libp2pPeerIDfromNodeID(ethNode *enode.Node) (*peer.ID, error) {
 	return &peerID, nil
 }
 
-func truncateStr(text string, width int) string {
-	r := []rune(text)
-	trunc := r[:width]
-	return string(trunc) + "..."
-}
-
 // reverseByteOrder Switch the endianness of a byte slice by reversing its order.
 // This function does not modify the actual input bytes.
 func reverseByteOrder(input []byte) []byte {

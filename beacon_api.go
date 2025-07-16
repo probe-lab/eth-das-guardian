@@ -182,7 +182,7 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		if b.cfg.WaitForFulu {
 			b.cfg.Logger.Info("waiting for ", secondsToFulu)
 			if secondsToFulu < 0 {
-				return fmt.Errorf("neg time to fulu?!")
+				return fmt.Errorf("negative time to fulu")
 			}
 			select {
 			case <-ctx.Done():
@@ -197,7 +197,6 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 		}
 	} else {
 		b.cfg.Logger.Info("fulu is supported")
-		fmt.Sprintln((int(currentState.Data.Slot) / 32), fuluForkEpoch)
 	}
 
 	prettyLogrusFields(b.cfg.Logger, "dowloaded beacon head-state", map[string]any{
