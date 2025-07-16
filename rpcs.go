@@ -177,14 +177,14 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (
 		}
 		return nil, err
 	}
-	
+
 	if log.GetLevel() >= log.DebugLevel {
 		r.cfg.Logger.WithFields(log.Fields{
 			"peer_id":  pid.String(),
 			"protocol": RPCMetaDataTopicV3,
 		}).Debug("Creating MetaDataV3 stream")
 	}
-	
+
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV3))
 	if err != nil {
 		if log.GetLevel() >= log.DebugLevel {
@@ -200,10 +200,10 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (
 
 	if log.GetLevel() >= log.DebugLevel {
 		r.cfg.Logger.WithFields(log.Fields{
-			"peer_id": pid.String(),
-			"request_seq_number": md.SeqNumber,
-			"request_attnets": fmt.Sprintf("0x%x", md.Attnets),
-			"request_syncnets": fmt.Sprintf("0x%x", md.Syncnets),
+			"peer_id":                     pid.String(),
+			"request_seq_number":          md.SeqNumber,
+			"request_attnets":             fmt.Sprintf("0x%x", md.Attnets),
+			"request_syncnets":            fmt.Sprintf("0x%x", md.Syncnets),
 			"request_custody_group_count": md.CustodyGroupCount,
 		}).Debug("Writing MetaDataV3 request with payload")
 	}
@@ -238,10 +238,10 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (
 
 	if log.GetLevel() >= log.DebugLevel {
 		r.cfg.Logger.WithFields(log.Fields{
-			"peer_id":             pid.String(),
+			"peer_id":                      pid.String(),
 			"response_seq_number":          resp.SeqNumber,
-			"response_attnets": fmt.Sprintf("0x%x", resp.Attnets),
-			"response_syncnets": fmt.Sprintf("0x%x", resp.Syncnets),
+			"response_attnets":             fmt.Sprintf("0x%x", resp.Attnets),
+			"response_syncnets":            fmt.Sprintf("0x%x", resp.Syncnets),
 			"response_custody_group_count": resp.CustodyGroupCount,
 		}).Debug("Successfully received MetaDataV3 response with full payload")
 	}

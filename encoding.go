@@ -264,10 +264,10 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 
 	if log.GetLevel() >= log.DebugLevel {
 		log.WithFields(log.Fields{
-			"response_type": responseType,
-			"response_code": code[0],
+			"response_type":     responseType,
+			"response_code":     code[0],
 			"response_code_hex": fmt.Sprintf("0x%02x", code[0]),
-			"is_success": code[0] == ResponseCodeSuccess,
+			"is_success":        code[0] == ResponseCodeSuccess,
 		}).Debug("Raw response code received")
 	}
 
@@ -277,7 +277,7 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 			log.WithFields(log.Fields{
 				"response_type": responseType,
 				"response_code": code[0],
-				"error_type": errorType,
+				"error_type":    errorType,
 			}).Debug("Non-success response code received")
 		}
 		return fmt.Errorf("RPC error code: %d", code[0])
@@ -291,7 +291,7 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 
 	if log.GetLevel() >= log.DebugLevel {
 		log.WithFields(log.Fields{
-			"response_type": responseType,
+			"response_type":       responseType,
 			"uncompressed_length": uncompressedLength,
 		}).Debug("Read uncompressed length from response")
 	}
@@ -323,10 +323,10 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 	// Log the raw response data
 	if log.GetLevel() >= log.DebugLevel {
 		log.WithFields(log.Fields{
-			"response_type": responseType,
+			"response_type":       responseType,
 			"uncompressed_length": uncompressedLength,
-			"raw_data_hex": fmt.Sprintf("0x%x", data),
-			"raw_data_len": len(data),
+			"raw_data_hex":        fmt.Sprintf("0x%x", data),
+			"raw_data_len":        len(data),
 		}).Debug("Raw response data received")
 	}
 
@@ -334,9 +334,9 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 	if err := sszCodec.UnmarshalSSZ(resp, data); err != nil {
 		if log.GetLevel() >= log.DebugLevel {
 			log.WithFields(log.Fields{
-				"response_type": responseType,
+				"response_type":   responseType,
 				"unmarshal_error": err,
-				"raw_data_hex": fmt.Sprintf("0x%x", data),
+				"raw_data_hex":    fmt.Sprintf("0x%x", data),
 			}).Debug("Failed to unmarshal SSZ response")
 		}
 		return fmt.Errorf("failed to unmarshal SSZ: %w", err)

@@ -688,25 +688,25 @@ func (g *DasGuardian) requestBeaconStatusV1(ctx context.Context, pid peer.ID) *S
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-status-v1 - %s", err.Error())
 	}
-	
+
 	// Debug: compare local vs remote fork digests
 	if status != nil && g.electraStatus != nil {
 		localForkDigest := fmt.Sprintf("0x%x", g.electraStatus.ForkDigest)
 		remoteForkDigest := fmt.Sprintf("0x%x", status.ForkDigest)
 		match := localForkDigest == remoteForkDigest
-		
+
 		g.cfg.Logger.WithFields(log.Fields{
-			"peer_id":             pid.String(),
-			"local_fork_digest":   localForkDigest,
-			"remote_fork_digest":  remoteForkDigest,
-			"fork_digest_match":   match,
+			"peer_id":            pid.String(),
+			"local_fork_digest":  localForkDigest,
+			"remote_fork_digest": remoteForkDigest,
+			"fork_digest_match":  match,
 		}).Debug("Fork digest comparison (StatusV1)")
-		
+
 		if !match {
 			g.cfg.Logger.Warn("Fork digest mismatch detected - this will cause network incompatibility")
 		}
 	}
-	
+
 	return status
 }
 
@@ -757,25 +757,25 @@ func (g *DasGuardian) requestBeaconStatusV2(ctx context.Context, pid peer.ID) *S
 			EarliestAvailableSlot: ^uint64(0), // Use max uint64 to indicate unavailable
 		}
 	}
-	
+
 	// Debug: compare local vs remote fork digests
 	if status != nil && g.fuluStatus != nil {
 		localForkDigest := fmt.Sprintf("0x%x", g.fuluStatus.ForkDigest)
 		remoteForkDigest := fmt.Sprintf("0x%x", status.ForkDigest)
 		match := localForkDigest == remoteForkDigest
-		
+
 		g.cfg.Logger.WithFields(log.Fields{
-			"peer_id":             pid.String(),
-			"local_fork_digest":   localForkDigest,
-			"remote_fork_digest":  remoteForkDigest,
-			"fork_digest_match":   match,
+			"peer_id":            pid.String(),
+			"local_fork_digest":  localForkDigest,
+			"remote_fork_digest": remoteForkDigest,
+			"fork_digest_match":  match,
 		}).Debug("Fork digest comparison (StatusV2)")
-		
+
 		if !match {
 			g.cfg.Logger.Warn("Fork digest mismatch detected - this will cause network incompatibility")
 		}
 	}
-	
+
 	g.cfg.Logger.Debugf("successfully received beacon-status-v2 from peer %s", pid)
 	return status
 }
@@ -834,8 +834,8 @@ func (g *DasGuardian) requestBeaconMetadataV3(ctx context.Context, pid peer.ID) 
 			}
 		}
 		g.cfg.Logger.WithFields(log.Fields{
-			"peer_id":            pid.String(),
-			"protocols":          protocols,
+			"peer_id":              pid.String(),
+			"protocols":            protocols,
 			"supports_metadata_v3": hasMetaDataV3,
 		}).Debug("Peer protocol support check for MetaDataV3")
 	}
@@ -863,7 +863,6 @@ func (g *DasGuardian) composeLocalBeaconStatus() (*StatusV1, *StatusV2, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	
 
 	// finalized
 	finalizedCheckpoint := g.apiCli.GetFinalizedCheckpoint()

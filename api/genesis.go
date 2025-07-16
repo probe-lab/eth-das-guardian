@@ -13,15 +13,15 @@ import (
 var GenesisBase = "eth/v1/beacon/genesis"
 
 type GenesisDataRaw struct {
-	GenesisTime          string `json:"genesis_time"`
+	GenesisTime           string `json:"genesis_time"`
 	GenesisValidatorsRoot string `json:"genesis_validators_root"`
-	GenesisForkVersion   string `json:"genesis_fork_version"`
+	GenesisForkVersion    string `json:"genesis_fork_version"`
 }
 
 type GenesisData struct {
-	GenesisTime          string              `json:"genesis_time"`
-	GenesisValidatorsRoot phase0.Root        `json:"genesis_validators_root"`
-	GenesisForkVersion   phase0.Version     `json:"genesis_fork_version"`
+	GenesisTime           string         `json:"genesis_time"`
+	GenesisValidatorsRoot phase0.Root    `json:"genesis_validators_root"`
+	GenesisForkVersion    phase0.Version `json:"genesis_fork_version"`
 }
 
 type GenesisResponse struct {
@@ -57,8 +57,8 @@ func (c *Client) GetGenesis(ctx context.Context) (*GenesisData, error) {
 	copy(genesisForkVersion[:], gfvBytes)
 
 	return &GenesisData{
-		GenesisTime:          genesisResp.Data.GenesisTime,
+		GenesisTime:           genesisResp.Data.GenesisTime,
 		GenesisValidatorsRoot: genesisValidatorsRoot,
-		GenesisForkVersion:   genesisForkVersion,
+		GenesisForkVersion:    genesisForkVersion,
 	}, nil
 }
