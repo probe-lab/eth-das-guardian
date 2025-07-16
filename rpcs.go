@@ -208,7 +208,7 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (
 		}).Debug("Writing MetaDataV3 request with payload")
 	}
 
-	if err := r.writeRequest(stream, md); err != nil {
+	if err := r.writeRequest(stream, nil); err != nil {
 		if log.GetLevel() >= log.DebugLevel {
 			r.cfg.Logger.WithFields(log.Fields{
 				"peer_id": pid.String(),
