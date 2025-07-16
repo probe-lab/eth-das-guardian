@@ -98,6 +98,8 @@ func (r *ReqResp) RegisterHandlers(ctx context.Context) error {
 
 func (r *ReqResp) wrapStreamHandler(ctx context.Context, name string, handler ContextStreamHandler) network.StreamHandler {
 	return func(s network.Stream) {
+		r.cfg.Logger.WithField("protocol", s.Protocol()).Info("incoming stream")
+
 		// Reset is a no-op if the stream is already closed. Closing the stream
 		// is the responsibility of the handler.
 		defer s.Reset()
