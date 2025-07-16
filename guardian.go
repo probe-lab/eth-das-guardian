@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/pkg/errors"
 	"github.com/wealdtech/go-bytesutil"
 
@@ -16,7 +17,7 @@ import (
 	gcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 
-	libp2p "github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p"
 	mplex "github.com/libp2p/go-libp2p-mplex"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -336,64 +337,59 @@ func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNo
 	return dasResults, nil
 }
 
-func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
+type PeerInfo struct {
+	AddrInfo   *peer.AddrInfo
+	Enode      *enode.Node
+	Libp2pInfo Libp2pInfo
+}
+
+func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node) (*DasGuardianScanResult, error) {
+	// get the info from the ENR
+	addrinfo, err := ParseMaddrFromEnode(enode)
+	if err != nil {
+		return nil, err
+	}
+
+	peerInfo, err := g.ConnectNode(ctx, addrinfo, enode)
+	if err != nil {
+		return nil, err
+	}
+
 	switch g.apiCli.GetStateVersion() {
 	case "electra":
-		return g.scanElectra(ctx, ethNode)
+		return g.scanElectra(ctx, peerInfo)
 	case "fulu":
-		return g.scanFulu(ctx, ethNode)
+		return g.scanFulu(ctx, peerInfo)
 	default:
 		return nil, fmt.Errorf("not recognized fork for the state %s", g.apiCli.GetStateVersion())
 	}
 }
 
-func (g *DasGuardian) scanElectra(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
-	// get the info from the ENR
-	enodeAddr, err := ParseMaddrFromEnode(ethNode)
-	if err != nil {
-		return nil, err
-	}
-
-	// connection attempt using the libp2p host
-	if err := g.ConnectNode(ctx, enodeAddr); err != nil {
-		return nil, err
-	}
-
-	// extract the necessary information from the ethNode
-	libp2pInfo := g.libp2pPeerInfo(enodeAddr.ID, ethNode)
-
-	// exchange ping
-	startT := time.Now()
-	if err := g.rpcServ.Ping(ctx, enodeAddr.ID); err != nil {
-		return nil, err
-	}
-	libp2pInfo["ping_rtt"] = time.Since(startT)
-	prettyLogrusFields(g.cfg.Logger, "libp2p info...", libp2pInfo)
-
+func (g *DasGuardian) scanElectra(ctx context.Context, peer *PeerInfo) (*DasGuardianScanResult, error) {
 	scanResult := &DasGuardianScanResult{
-		Libp2pInfo: libp2pInfo,
+		Libp2pInfo: peer.Libp2pInfo,
 	}
 
 	// exchange beacon-status
-	remoteStatus := g.requestBeaconStatusV1(ctx, enodeAddr.ID)
+	remoteStatus := g.requestBeaconStatusV1(ctx, peer.AddrInfo.ID)
 	if remoteStatus == nil {
-		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", peer.Enode.ID())
 	}
 	scanResult.RemoteStatusV1 = remoteStatus
 	statusLogs := g.visualizeBeaconStatusV1(remoteStatus)
 
 	// exchange beacon-metadata
-	remoteMetadata := g.requestBeaconMetadataV2(ctx, enodeAddr.ID)
+	remoteMetadata := g.requestBeaconMetadataV2(ctx, peer.AddrInfo.ID)
 	if remoteMetadata == nil {
-		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", peer.Enode.ID())
 	}
 
 	scanResult.RemoteMetadataV2 = remoteMetadata
 	metadataLogs := g.visualizeBeaconMetadataV2(remoteMetadata)
 
 	prettyLogrusFields(g.cfg.Logger, "scanning eth-node...", map[string]any{
-		"peer-id": enodeAddr.ID.String(),
-		"maddr":   enodeAddr.Addrs,
+		"peer-id": peer.AddrInfo.ID.String(),
+		"maddr":   peer.AddrInfo.Addrs,
 	})
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
@@ -401,61 +397,39 @@ func (g *DasGuardian) scanElectra(ctx context.Context, ethNode *enode.Node) (*Da
 	return scanResult, nil
 }
 
-func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
-	// get the info from the ENR
-	enodeAddr, err := ParseMaddrFromEnode(ethNode)
-	if err != nil {
-		return nil, err
-	}
-
-	enrCustody, err := GetCustodyFromEnr(ethNode)
-	if err != nil {
-		g.cfg.Logger.Warn(err.Error())
-	}
-	enrCustodyGroups, err := CustodyColumnsSlice(ethNode.ID(), enrCustody, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
-	if err != nil {
-		return nil, err
-	}
-
-	// connection attempt using the libp2p host
-	if err := g.ConnectNode(ctx, enodeAddr); err != nil {
-		return nil, err
-	}
-
-	// extract the necessary information from the ethNode
-	libp2pInfo := g.libp2pPeerInfo(enodeAddr.ID, ethNode)
-
-	// exchange ping
-	startT := time.Now()
-	if err := g.rpcServ.Ping(ctx, enodeAddr.ID); err != nil {
-		return nil, err
-	}
-	libp2pInfo["ping_rtt"] = time.Since(startT)
-	prettyLogrusFields(g.cfg.Logger, "libp2p info...", libp2pInfo)
-
+func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo) (*DasGuardianScanResult, error) {
 	scanResult := &DasGuardianScanResult{
-		Libp2pInfo: libp2pInfo,
+		Libp2pInfo: peerInfo.Libp2pInfo,
 	}
 
 	// exchange beacon-status
-	remoteStatus := g.requestBeaconStatusV2(ctx, enodeAddr.ID)
+	remoteStatus := g.requestBeaconStatusV2(ctx, peerInfo.AddrInfo.ID)
 	if remoteStatus == nil {
-		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", peerInfo.Enode.ID())
 	}
 	scanResult.RemoteStatusV2 = remoteStatus
 	statusLogs := g.visualizeBeaconStatusV2(remoteStatus)
 
 	// exchange beacon-metadata
-	remoteMetadata := g.requestBeaconMetadataV3(ctx, enodeAddr.ID)
+	remoteMetadata := g.requestBeaconMetadataV3(ctx, peerInfo.AddrInfo.ID)
 	if remoteMetadata == nil {
-		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", peerInfo.Enode.ID())
 	}
 
 	scanResult.RemoteMetadataV3 = remoteMetadata
 	metadataLogs := g.visualizeBeaconMetadataV3(remoteMetadata)
-	metadataCustodyIdxs, err := CustodyColumnsSlice(ethNode.ID(), remoteMetadata.CustodyGroupCount, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
+	metadataCustodyIdxs, err := CustodyColumnsSlice(peerInfo.Enode.ID(), remoteMetadata.CustodyGroupCount, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
 	if err != nil {
 		return scanResult, errors.Wrap(err, "wrong cuystody subnet")
+	}
+
+	enrCustody, err := GetCustodyFromEnr(peerInfo.Enode)
+	if err != nil {
+		g.cfg.Logger.Warn(err.Error())
+	}
+	enrCustodyGroups, err := CustodyColumnsSlice(peerInfo.Enode.ID(), enrCustody, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
+	if err != nil {
+		return nil, err
 	}
 
 	// compare enr custody to metadata one
@@ -464,8 +438,8 @@ func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (*DasGu
 	}
 
 	prettyLogrusFields(g.cfg.Logger, "scanning eth-node...", map[string]any{
-		"peer-id":            enodeAddr.ID.String(),
-		"maddr":              enodeAddr.Addrs,
+		"peer-id":            peerInfo.AddrInfo.ID.String(),
+		"maddr":              peerInfo.AddrInfo.Addrs,
 		"enr-custody":        enrCustody,
 		"enr-custody-groups": enrCustodyGroups,
 	})
@@ -494,13 +468,13 @@ func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (*DasGu
 	}
 
 	// DAS??!?
-	dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, enodeAddr.ID, randomSlots, metadataCustodyIdxs[:])
+	dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, peerInfo.AddrInfo.ID, randomSlots, metadataCustodyIdxs[:])
 	if err != nil {
 		return scanResult, err
 	}
 
 	// evaluate and return the results
-	evalResult, err := evaluateColumnResponses(g.cfg.Logger, ethNode.ID().String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
+	evalResult, err := evaluateColumnResponses(g.cfg.Logger, peerInfo.Enode.ID().String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
 	if err != nil {
 		return scanResult, err
 	}
@@ -612,31 +586,60 @@ func (g *DasGuardian) subscribeToTopics(ctx context.Context, topics []string) er
 	return nil
 }
 
-func (g *DasGuardian) ConnectNode(ctx context.Context, pInfo *peer.AddrInfo) error {
-	// TODO: subscribe to the identify protocol event and ensure that we return when the peer is identified
+type Libp2pInfo map[string]any
 
+func (g *DasGuardian) ConnectNode(ctx context.Context, addrinfo *peer.AddrInfo, enode *enode.Node) (*PeerInfo, error) {
 	// for whatever reason, we need to record the adddress of the peer at the peerstore
-	g.host.Peerstore().AddAddrs(pInfo.ID, pInfo.Addrs, 24*time.Hour)
+	g.host.Peerstore().AddAddrs(addrinfo.ID, addrinfo.Addrs, 24*time.Hour)
 
 	for r := 1; r <= g.cfg.ConnectionRetries; r++ {
 		connCtx, connCancel := context.WithTimeout(ctx, g.cfg.ConnectionTimeout)
-		defer connCancel()
 		startT := time.Now()
-		if err := g.host.Connect(connCtx, *pInfo); err != nil {
-			g.cfg.Logger.Warnf("conn attempt %d failed - %s", r, err.Error())
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("main context died %s", ctx.Err().Error())
-			case <-time.After(Libp2pConnGraceTime - time.Since(startT)):
-				continue
-			}
-		} else {
-			g.cfg.Logger.Info("connected to remote node...")
-			return nil
+
+		err := g.host.Connect(connCtx, *addrinfo)
+		connCancel()
+		if err == nil {
+			break
+		}
+
+		g.cfg.Logger.Warnf("conn attempt %d failed - %s", r, err.Error())
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("main context died %s", ctx.Err().Error())
+		case <-time.After(Libp2pConnGraceTime - time.Since(startT)):
+			// TODO looks like a bug -- startT resets with every iteration
 		}
 	}
 
-	return fmt.Errorf("unreachable node")
+	// Test if we're indeed connected.
+	if g.host.Network().Connectedness(addrinfo.ID) != network.Connected {
+		return nil, fmt.Errorf("unreachable node")
+	}
+
+	// TODO: subscribe to the identify protocol event and ensure that we return when the peer is identified
+	// extract the necessary information from the ethNode
+	info := g.libp2pPeerInfo(addrinfo.ID, enode)
+	prettyLogrusFields(g.cfg.Logger, "libp2p info", info)
+	g.cfg.Logger.Info("attempting ping")
+
+	// Exchange ping.
+	// Not all CL clients support ping, so we'll just log errors and move on.
+	// TODO could fall back to ICMP ping if important
+	startT := time.Now()
+	if err := g.rpcServ.Ping(ctx, addrinfo.ID); err != nil {
+		g.cfg.Logger.WithError(err).Warn("libp2p ping failed; skipping")
+	} else {
+		elapsed := time.Since(startT)
+		info["ping_rtt"] = elapsed
+		g.cfg.Logger.Infof("libp2p RTT: %s", elapsed)
+	}
+
+	res := &PeerInfo{
+		AddrInfo:   addrinfo,
+		Enode:      enode,
+		Libp2pInfo: info,
+	}
+	return res, nil
 }
 
 func (g *DasGuardian) libp2pPeerInfo(pid peer.ID, ethNode *enode.Node) map[string]any {
