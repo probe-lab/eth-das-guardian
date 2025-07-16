@@ -56,7 +56,6 @@ func evaluateColumnResponses(
 			blobCount = len(kzgCommitments)
 		}
 		if len(cols[s]) == 0 {
-			//lint:ignore S1005 complaints all the time
 			for i := range columnIdxs {
 				downloaded[i] = fmt.Sprintf("0/%d", blobCount)
 				validKzg[i] = fmt.Sprintf("0/%d", blobCount)
@@ -150,13 +149,4 @@ func (res *DASEvaluationResult) LogVisualization(logger log.FieldLogger) error {
 	}
 	// compose the table
 	return nil
-}
-
-func countTrues(vs []bool) (trues int) {
-	for _, v := range vs {
-		if v {
-			trues++
-		}
-	}
-	return trues
 }

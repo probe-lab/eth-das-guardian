@@ -696,7 +696,7 @@ func (g *DasGuardian) visualizeBeaconStatusV2(status *StatusV2) map[string]any {
 			statusInfo[StatusVersion] = "v2"
 			statusInfo[EarliestAvailableSlot] = status.EarliestAvailableSlot
 		}
-		
+
 		statusInfo[ForkDigest] = fmt.Sprintf("0x%x", status.ForkDigest)
 		statusInfo[FinalizedEpoch] = status.FinalizedEpoch
 		statusInfo[FinalizedRoot] = fmt.Sprintf("0x%x", status.FinalizedRoot)
@@ -712,16 +712,16 @@ func (g *DasGuardian) requestBeaconStatusV2(ctx context.Context, pid peer.ID) *S
 	status, err := g.rpcServ.StatusV2(ctx, pid, g.fuluStatus)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-status-v2 - %s, falling back to status-v1", err.Error())
-		
+
 		// Fallback to status v1 if v2 fails
 		statusV1, err := g.rpcServ.StatusV1(ctx, pid, g.electraStatus)
 		if err != nil {
 			g.cfg.Logger.Warnf("error requesting beacon-status-v1 fallback - %s", err.Error())
 			return nil
 		}
-		
+
 		g.cfg.Logger.Debugf("successfully received beacon-status-v1 from peer %s", pid)
-		
+
 		// Convert StatusV1 to StatusV2 format
 		return &StatusV2{
 			ForkDigest:            statusV1.ForkDigest,
