@@ -19,6 +19,10 @@ type BeaconBlock struct {
 	Data                *electra.SignedBeaconBlock `json:"data"`
 }
 
+func (b *BeaconBlock) IsMissed() bool {
+	return b.Data == nil
+}
+
 type FuluBeaconBlock struct {
 	Slot          string                  `json:"slot"`
 	ProposerIndex string                  `json:"proposer_index"`

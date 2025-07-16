@@ -24,14 +24,15 @@ const (
 )
 
 type BeaconAPI interface {
-	Init(ctx context.Context) error
+	Init(context.Context) error
 	GetStateVersion() string
 	GetForkDigest(slot uint64) ([]byte, error)
 	GetFinalizedCheckpoint() *phase0.Checkpoint
 	GetLatestBlockHeader() *phase0.BeaconBlockHeader
 	GetFuluForkEpoch() uint64
-	GetNodeIdentity(ctx context.Context) (*api.NodeIdentity, error)
-	GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error)
+	GetNodeIdentity(context.Context) (*api.NodeIdentity, error)
+	GetBeaconBlock(ctx context.Context, slot uint64) (*api.BeaconBlock, error)
+	ReadSpecParameter(key string) (any, bool)
 }
 
 type BeaconAPIConfig struct {
@@ -418,4 +419,9 @@ func (b *BeaconAPIImpl) GetNodeIdentity(ctx context.Context) (*api.NodeIdentity,
 
 func (b *BeaconAPIImpl) GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error) {
 	return b.apiClient.GetBeaconBlock(ctx, slot)
+}
+
+func (b *BeaconAPIImpl) ReadSpecParameter(key string) (any, bool) {
+	value, ok := b.specs[key]
+	return value, ok
 }
