@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/pkg/errors"
 	"github.com/wealdtech/go-bytesutil"
@@ -159,6 +160,23 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 	if err != nil {
 		return nil, err
 	}
+
+	sub, err := h.EventBus().Subscribe(event.WildcardSubscription)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start wildcard eventbus subscription: %w", err)
+	}
+
+	go func() {
+		defer sub.Close()
+		for {
+			select {
+			case evt := <-sub.Out():
+				cfg.Logger.WithField("event", fmt.Sprintf("%T%+v", evt, evt)).Info("received eventbus event")
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	pubsub, err := pubsub.NewGossipSub(ctx, h, cfg.PubsubOptions()...)
 	if err != nil {
