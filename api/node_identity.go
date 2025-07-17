@@ -27,6 +27,11 @@ type NodeIdentity struct {
 }
 
 func (i *NodeIdentity) CustodyInt() (int, error) {
+	// TODO remove patch for Prysm, adding dummy data in missing fields.
+	// https://github.com/OffchainLabs/prysm/pull/15506
+	if i.Data.Metadata.Cgc == "" {
+		return 128, nil
+	}
 	return strconv.Atoi(i.Data.Metadata.Cgc)
 }
 
@@ -35,6 +40,11 @@ func (i *NodeIdentity) Attnets() []byte {
 }
 
 func (i *NodeIdentity) Syncnets() []byte {
+	// TODO remove patch for Prysm, adding dummy data in missing fields.
+	// https://github.com/OffchainLabs/prysm/pull/15506
+	if i.Data.Metadata.Syncnets == nil {
+		return []byte{0x01}
+	}
 	return i.Data.Metadata.Syncnets
 }
 
