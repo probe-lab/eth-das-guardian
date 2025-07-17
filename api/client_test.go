@@ -9,13 +9,13 @@ import (
 )
 
 var (
-	localAvailTestIP = "https://beacon.berlinterop-devnet-2.ethpandaops.io/"
+	localAvailTestIP = "https://beacon.fusaka-devnet-2.ethpandaops.io/"
 	StateTimeout     = 30 * time.Second
 	QueryTimeout     = 10 * time.Second
 )
 
 // API connection
-func Test_APIClient(t *testing.T) {
+func TestApiClient(t *testing.T) {
 	httpCli, testMainCtx, cancel := genTestAPICli(t)
 	defer cancel()
 
@@ -24,7 +24,7 @@ func Test_APIClient(t *testing.T) {
 }
 
 // API endpoints
-func Test_ApiGetNodeVersion(t *testing.T) {
+func TestApiClient_GetNodeVersion(t *testing.T) {
 	httpCli, testMainCtx, cancel := genTestAPICli(t)
 	defer cancel()
 
@@ -32,7 +32,7 @@ func Test_ApiGetNodeVersion(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_ApiGetPeerDASstate(t *testing.T) {
+func TestApiClient_GetPeerDASstate(t *testing.T) {
 	httpCli, testMainCtx, cancel := genTestAPICli(t)
 	defer cancel()
 
@@ -40,7 +40,7 @@ func Test_ApiGetPeerDASstate(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_ApiGetForkChoice(t *testing.T) {
+func TestApiClient_GetForkChoice(t *testing.T) {
 	httpCli, testMainCtx, cancel := genTestAPICli(t)
 	defer cancel()
 
@@ -48,7 +48,7 @@ func Test_ApiGetForkChoice(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_ApiGetNetworkConfig(t *testing.T) {
+func TestApiClient_GetNetworkConfig(t *testing.T) {
 	httpCli, testMainCtx, cancel := genTestAPICli(t)
 	defer cancel()
 
@@ -56,11 +56,19 @@ func Test_ApiGetNetworkConfig(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_ApiGetNodeIdentity(t *testing.T) {
+func TestApiClient_GetNodeIdentity(t *testing.T) {
 	httpCli, testMainCtx, cancel := genTestAPICli(t)
 	defer cancel()
 
 	_, err := httpCli.GetNodeIdentity(testMainCtx)
+	require.NoError(t, err)
+}
+
+func TestApiClient_GetConfigSpec(t *testing.T) {
+	httpCli, testMainCtx, cancel := genTestAPICli(t)
+	defer cancel()
+
+	_, err := httpCli.GetConfigSpecs(testMainCtx)
 	require.NoError(t, err)
 }
 

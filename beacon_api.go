@@ -31,7 +31,7 @@ type BeaconAPI interface {
 	GetLatestBlockHeader() *phase0.BeaconBlockHeader
 	GetFuluForkEpoch() uint64
 	GetNodeIdentity(context.Context) (*api.NodeIdentity, error)
-	GetBeaconBlock(ctx context.Context, slot uint64) (*api.BeaconBlock, error)
+	GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error)
 	ReadSpecParameter(key string) (any, bool)
 }
 
