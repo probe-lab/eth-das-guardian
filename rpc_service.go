@@ -11,10 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	RPCStatusV2 = "/eth2/beacon_chain/req/status/2"
-)
-
 const (
 	// Spec defined codes.
 	GoodbyeCodeClientShutdown uint64 = iota + 1
@@ -72,9 +68,10 @@ func NewReqResp(h host.Host, cfg *ReqRespConfig) (*ReqResp, error) {
 // values.
 func (r *ReqResp) RegisterHandlers(ctx context.Context) error {
 	handlers := map[string]ContextStreamHandler{
-		RPCPingTopicV1:                      r.pingHandler,
-		RPCGoodByeTopicV1:                   r.goodbyeHandler,
-		RPCStatusTopicV1:                    r.dummyHandler,
+		RPCPingTopicV1:    r.pingHandler,
+		RPCGoodByeTopicV1: r.goodbyeHandler,
+		RPCStatusTopicV1:  r.dummyHandler,
+		
 		RPCMetaDataTopicV1:                  r.dummyHandler,
 		RPCMetaDataTopicV2:                  r.dummyHandler,
 		RPCMetaDataTopicV3:                  r.dummyHandler,
