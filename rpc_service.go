@@ -68,10 +68,10 @@ func NewReqResp(h host.Host, cfg *ReqRespConfig) (*ReqResp, error) {
 // values.
 func (r *ReqResp) RegisterHandlers(ctx context.Context) error {
 	handlers := map[string]ContextStreamHandler{
-		RPCPingTopicV1:    r.pingHandler,
-		RPCGoodByeTopicV1: r.goodbyeHandler,
-		RPCStatusTopicV1:  r.dummyHandler,
-		
+		RPCPingTopicV1:                      r.pingHandler,
+		RPCGoodByeTopicV1:                   r.goodbyeHandler,
+		RPCStatusTopicV1:                    r.dummyHandler,
+		RPCStatusTopicV2:                    r.dummyHandler,
 		RPCMetaDataTopicV1:                  r.dummyHandler,
 		RPCMetaDataTopicV2:                  r.dummyHandler,
 		RPCMetaDataTopicV3:                  r.dummyHandler,
