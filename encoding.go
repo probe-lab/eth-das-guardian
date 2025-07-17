@@ -172,7 +172,7 @@ func (r *ReqResp) writeRequest(stream network.Stream, req any) error {
 		"data_len":  len(data),
 		"wire_data": hexutil.Encode(buf.Bytes()),
 		"wire_len":  buf.Len(),
-	}).Info("writing request")
+	}).Debug("writing request")
 
 	// Write buffer to the stream
 	if _, err := io.Copy(stream, &buf); err != nil {
