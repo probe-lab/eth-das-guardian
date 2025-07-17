@@ -3,6 +3,7 @@ package dasguardian
 import (
 	"context"
 	"fmt"
+	mrand "math/rand"
 
 	"github.com/attestantio/go-eth2-client/spec"
 )
@@ -16,6 +17,7 @@ type SlotRangeType string
 func (s SlotRangeType) String() string { return string(s) }
 
 const (
+	NoSlots              SlotRangeType = "none"
 	CustomSlots          SlotRangeType = "custom"
 	RandomSlots          SlotRangeType = "random"
 	RandomNonMissedSlots SlotRangeType = "random-not-missed"
@@ -24,6 +26,8 @@ const (
 
 func SlotRangeTypeFromString(s string) SlotRangeType {
 	switch s {
+	case NoSlots.String():
+		return NoSlots
 	case CustomSlots.String():
 		return CustomSlots
 	case RandomSlots.String():
@@ -33,17 +37,60 @@ func SlotRangeTypeFromString(s string) SlotRangeType {
 	case RandomWithBlobsSlots.String():
 		return RandomWithBlobsSlots
 	default:
-		return RandomSlots
+		return RandomSlots // default to Random
 	}
 }
 
-type SlotsToRequest struct {
-	Type string
+type SlotRangeRequestParams struct {
+	Type  SlotRangeType
+	Range int32
+	Slots []uint64
+}
+
+func (p SlotRangeRequestParams) Validate() error {
+	// make the validation per type
+	switch p.Type {
+	case NoSlots:
+		// nothing to check
+
+	case CustomSlots:
+		if len(p.Slots) <= 0 {
+			return fmt.Errorf("no slots where given")
+		}
+
+	case RandomSlots, RandomNonMissedSlots, RandomWithBlobsSlots:
+		if p.Range <= 0 {
+			return fmt.Errorf("no slot-range was given (%d)", p.Range)
+		}
+
+	default:
+		return fmt.Errorf("undefined slot-range-type %s", p.Type.String())
+	}
+
+	return nil
+}
+
+func (p SlotRangeRequestParams) SlotSelector() SlotSelector {
+	// make the validation per type
+	switch p.Type {
+	case NoSlots:
+		return WithNoSlots()
+	case CustomSlots:
+		return WithCustomSlots(p.Slots)
+	case RandomSlots:
+		return WithRandomSlots(p.Range)
+	case RandomNonMissedSlots:
+		return WithRandomNonMissedSlots(p.Range)
+	case RandomWithBlobsSlots:
+		return WithRandomWithBlobsSlots(p.Range)
+	default:
+		return WithRandomSlots(p.Range)
+	}
 }
 
 // SlotSelector is tha main option interface to define which kind of slots we want to select
 // NOTE: all the slots need to be over the fulu fork, otherwise we can't request DataColums
-type SlotSelector func(context.Context, *DasGuardian) ([]SampleableSlot, error)
+type SlotSelector func(context.Context, BeaconAPI) ([]SampleableSlot, error)
 
 type SampleableSlot struct {
 	Slot        uint64
@@ -67,10 +114,10 @@ func BlocksFromSampleableSlots(ss []SampleableSlot) []*spec.VersionedSignedBeaco
 }
 
 func WithCustomSlots(slots []uint64) SlotSelector {
-	return func(ctx context.Context, g *DasGuardian) ([]SampleableSlot, error) {
+	return func(ctx context.Context, apiCli BeaconAPI) ([]SampleableSlot, error) {
 		sampSlots := make([]SampleableSlot, len(slots))
 		for i, slot := range slots {
-			beaconBlock, err := g.apiCli.GetBeaconBlock(ctx, slot)
+			beaconBlock, err := apiCli.GetBeaconBlock(ctx, slot)
 			if err != nil {
 				return sampSlots, fmt.Errorf("retrieving slot %d - %s", slot, err.Error())
 			}
@@ -84,62 +131,117 @@ func WithCustomSlots(slots []uint64) SlotSelector {
 	}
 }
 
-func WithDummySlots(slots []uint64) SlotSelector {
-	return func(ctx context.Context, g *DasGuardian) ([]SampleableSlot, error) {
+func WithNoSlots() SlotSelector {
+	return func(ctx context.Context, apiCli BeaconAPI) ([]SampleableSlot, error) {
 		return nil, nil
 	}
 }
 
 // WithRandomSlots returns a random slot composer.
 // Generates n number of random slots between the [min(fulu_fork_slot, last_custody_slot), current_head)
-func WithRandomSlots(n int) SlotSelector {
-	return func(ctx context.Context, g *DasGuardian) ([]SampleableSlot, error) {
-		return GenerateRandomSlots(ctx, g, n)
+func WithRandomSlots(n int32) SlotSelector {
+	return func(ctx context.Context, apiCli BeaconAPI) ([]SampleableSlot, error) {
+		return GenerateRandomSlots(ctx, apiCli, n)
 	}
 }
 
-func GenerateRandomSlots(ctx context.Context, g *DasGuardian, n int) ([]SampleableSlot, error) {
-	sampSlots := make([]SampleableSlot, n)
-	minSampSlot := GetMinSampleableSlot(g)
-	headSlot := g.apiCli.GetLatestBlockHeader()
-	if headSlot == nil {
-		return sampSlots, fmt.Errorf("unable to retrieve the latest block header")
+func GenerateRandomSlots(ctx context.Context, apiCli BeaconAPI, n int32) ([]SampleableSlot, error) {
+	// First, figure out how many unique slots we can actually get
+	// based on the custody fork + head slot:
+	header := apiCli.GetLatestBlockHeader()
+	if header == nil {
+		return nil, fmt.Errorf("unable to retrieve the latest block header")
 	}
+	// get the fulu fork epoch and translate it to slot
+	fuluSlot := EpochToSlot(apiCli.GetFuluForkEpoch())
+	// get the min-custody value
+	custodyEpochs, ok := apiCli.ReadSpecParameter("MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS")
+	if !ok {
+		return nil, fmt.Errorf("unable to retrieve the column custody from the specs")
+	}
+	minSampSlot := GetMaxSampleableSlot(fuluSlot, uint64(header.Slot), EpochToSlot(custodyEpochs.(uint64)))
 
-	randomSlots := selectRandomSlotsForRange(
+	// selectRandomSlotsForRange already caps bins to the available range
+	rawSlots := selectRandomSlotsForRange(
 		int64(minSampSlot),
-		int64(headSlot.Slot),
+		int64(header.Slot),
 		int64(n),
 	)
 
-	for i, slot := range randomSlots {
-		beaconBlock, err := g.apiCli.GetBeaconBlock(ctx, slot)
+	// Allocate exactly as many SampleableSlots as we got back
+	sampSlots := make([]SampleableSlot, len(rawSlots))
+	for i, slot := range rawSlots {
+		block, err := apiCli.GetBeaconBlock(ctx, slot)
 		if err != nil {
-			return sampSlots, fmt.Errorf("retrieving slot %d - %s", slot, err.Error())
+			return nil, fmt.Errorf("retrieving slot %d - %v", slot, err)
 		}
-		sampBlock := SampleableSlot{
+		sampSlots[i] = SampleableSlot{
 			Slot:        slot,
-			BeaconBlock: beaconBlock,
+			BeaconBlock: block,
 		}
-		sampSlots[i] = sampBlock
 	}
 	return sampSlots, nil
 }
 
-func GetMinSampleableSlot(g *DasGuardian) uint64 {
-	// get the fulu fork epoch and translate it to slot
-	fuluSlot := EpochToSlot(g.apiCli.GetFuluForkEpoch())
-
-	// get the min-custody value
-	minCustodyEpoch, ok := g.apiCli.ReadSpecParameter("MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS")
-	if !ok {
-		return fuluSlot
+func WithRandomNonMissedSlots(n int32) SlotSelector {
+	// TODO: update logic to remove missed slots
+	return func(ctx context.Context, apiCli BeaconAPI) ([]SampleableSlot, error) {
+		return GenerateRandomSlots(ctx, apiCli, n)
 	}
-	minCustodySlot := EpochToSlot(minCustodyEpoch.(uint64))
+}
 
-	return min(fuluSlot, minCustodySlot)
+func WithRandomWithBlobsSlots(n int32) SlotSelector {
+	// TODO: update logic to remove missed slots
+	return func(ctx context.Context, g BeaconAPI) ([]SampleableSlot, error) {
+		return GenerateRandomSlots(ctx, g, n)
+	}
+}
+
+func GetMaxSampleableSlot(fuluSlot, headSlot, custodySlots uint64) uint64 {
+	if custodySlots >= headSlot {
+		custodySlots = headSlot
+	}
+	lastCustody := headSlot - custodySlots
+	return max(fuluSlot, lastCustody)
+}
+
+func selectRandomSlotsForRange(minSlot int64, headSlot int64, bins int64) []uint64 {
+	// Handle edge cases
+	if bins <= 0 || minSlot <= 0 || minSlot > headSlot {
+		return []uint64{}
+	}
+
+	// Calculate the actual available range size
+	rangeSize := headSlot - minSlot
+
+	// Ensure we don't request more slots than available
+	if bins > rangeSize {
+		bins = rangeSize
+	}
+
+	// Double check that we have enough slots
+	if bins <= 0 {
+		return []uint64{}
+	}
+
+	// Use a map to ensure uniqueness
+	slotSet := make(map[uint64]bool)
+	randomSlots := make([]uint64, 0, bins)
+
+	// Generate unique random slots until we have enough to cover bin
+	for int64(len(randomSlots)) < bins {
+		randomSlot := minSlot + mrand.Int63n(rangeSize)
+		slot := uint64(randomSlot)
+
+		if !slotSet[slot] {
+			slotSet[slot] = true
+			randomSlots = append(randomSlots, slot)
+		}
+	}
+
+	return randomSlots
 }
 
 func EpochToSlot(epoch uint64) uint64 {
-	return epoch / SLOTS_PER_EPOCH
+	return epoch * SLOTS_PER_EPOCH
 }

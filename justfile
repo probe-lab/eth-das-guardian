@@ -14,3 +14,6 @@ lint:
 
 format:
     gofumpt -w -l .
+
+unit-test:
+    {{ GOCC }} test -tags="!integration" $(go list ./... | grep -v ./cmd/)
