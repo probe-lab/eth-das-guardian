@@ -137,10 +137,10 @@ type DasGuardian struct {
 	cfg *DasGuardianConfig
 
 	// services
-	host    host.Host
-	apiCli  BeaconAPI
-	pubsub  *pubsub.PubSub
-	rpcServ *ReqResp
+	host      host.Host
+	beaconApi BeaconAPI
+	pubsub    *pubsub.PubSub
+	rpcServ   *ReqResp
 
 	// chain data
 	electraStatus   *StatusV1
@@ -202,10 +202,10 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 	}
 
 	guardian := &DasGuardian{
-		cfg:    cfg,
-		host:   h,
-		pubsub: pubsub,
-		apiCli: beaconApi,
+		cfg:       cfg,
+		host:      h,
+		pubsub:    pubsub,
+		beaconApi: beaconApi,
 	}
 
 	initCtx, initCancel := context.WithTimeout(ctx, cfg.InitTimeout)
@@ -223,7 +223,7 @@ func (g *DasGuardian) Host() host.Host {
 
 func (g *DasGuardian) init(ctx context.Context) error {
 	// init beacon-api
-	if err := g.apiCli.Init(ctx); err != nil {
+	if err := g.beaconApi.Init(ctx); err != nil {
 		return err
 	}
 
@@ -249,7 +249,7 @@ func (g *DasGuardian) init(ctx context.Context) error {
 	})
 
 	// subscribe to main topics
-	forkDigest, err := g.apiCli.GetForkDigest(g.fuluStatus.HeadSlot)
+	forkDigest, err := g.beaconApi.GetForkDigest(g.fuluStatus.HeadSlot)
 	if err != nil {
 		return err
 	}
@@ -263,7 +263,7 @@ func (g *DasGuardian) init(ctx context.Context) error {
 		ReadTimeout:  g.cfg.ConnectionTimeout,
 		WriteTimeout: g.cfg.ConnectionTimeout,
 		ForkDigest: func(slot uint64) []byte {
-			digest, _ := g.apiCli.GetForkDigest(slot)
+			digest, _ := g.beaconApi.GetForkDigest(slot)
 			return digest
 		},
 	}
@@ -373,13 +373,13 @@ func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node) (*DasGuardian
 		return nil, err
 	}
 
-	switch g.apiCli.GetStateVersion() {
+	switch g.beaconApi.GetStateVersion() {
 	case "electra":
 		return g.scanElectra(ctx, peerInfo)
 	case "fulu":
 		return g.scanFulu(ctx, peerInfo)
 	default:
-		return nil, fmt.Errorf("not recognized fork for the state %s", g.apiCli.GetStateVersion())
+		return nil, fmt.Errorf("not recognized fork for the state %s", g.beaconApi.GetStateVersion())
 	}
 }
 
@@ -467,7 +467,7 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo) (*DasGua
 	// select the random slots to sample
 	// limit to only Fulu supported
 	custSlots := int64(CustodySlots)
-	fuluForkEpoch := g.apiCli.GetFuluForkEpoch()
+	fuluForkEpoch := g.beaconApi.GetFuluForkEpoch()
 	if (int64(remoteStatus.HeadSlot) - int64(CustodySlots)) <= int64((fuluForkEpoch * 32)) {
 		custSlots = int64(remoteStatus.HeadSlot) - int64(fuluForkEpoch*32)
 	}
@@ -520,7 +520,7 @@ func (g *DasGuardian) MonitorEndpoint(ctx context.Context) error {
 
 func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	// get the information directly from the Beacon API
-	nodeInfo, err := g.apiCli.GetNodeIdentity(ctx)
+	nodeInfo, err := g.beaconApi.GetNodeIdentity(ctx)
 	if err != nil {
 		return err
 	}
@@ -539,7 +539,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 
 	// compare the results from the API with the ones from the ENR
 
-	if g.apiCli.GetStateVersion() == "fulu" {
+	if g.beaconApi.GetStateVersion() == "fulu" {
 		// cgc
 		enrCustody, err := GetCustodyFromEnr(enrNode)
 		if err != nil {
@@ -875,23 +875,23 @@ func (g *DasGuardian) requestBeaconMetadataV3(ctx context.Context, pid peer.ID) 
 
 func (g *DasGuardian) composeLocalBeaconStatus() (*StatusV1, *StatusV2, error) {
 	slot := uint64(0)
-	if headSlot := g.apiCli.GetLatestBlockHeader(); headSlot != nil {
+	if headSlot := g.beaconApi.GetLatestBlockHeader(); headSlot != nil {
 		slot = uint64(headSlot.Slot)
 	}
 
 	// fork digest
-	forkDigest, err := g.apiCli.GetForkDigest(slot)
+	forkDigest, err := g.beaconApi.GetForkDigest(slot)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// finalized
-	finalizedCheckpoint := g.apiCli.GetFinalizedCheckpoint()
+	finalizedCheckpoint := g.beaconApi.GetFinalizedCheckpoint()
 	finalizedRoot := bytesutil.ToBytes32(finalizedCheckpoint.Root[:])
 	finalizedEpoch := uint64(finalizedCheckpoint.Epoch)
 
 	// head
-	latestBlockHeader := g.apiCli.GetLatestBlockHeader()
+	latestBlockHeader := g.beaconApi.GetLatestBlockHeader()
 	headRoot := bytesutil.ToBytes32(latestBlockHeader.StateRoot[:])
 	headSlot := uint64(latestBlockHeader.Slot)
 
@@ -970,7 +970,7 @@ func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]*s
 	}).Info("requesting slot-blocks from beacon API...")
 	blocks := make([]*spec.VersionedSignedBeaconBlock, len(slots))
 	for i, slot := range slots {
-		b, err := g.apiCli.GetBeaconBlock(ctx, slot)
+		b, err := g.beaconApi.GetBeaconBlock(ctx, slot)
 		if err != nil {
 			return blocks, err
 		}
