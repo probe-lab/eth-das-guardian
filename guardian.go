@@ -64,15 +64,16 @@ const (
 )
 
 type DasGuardianConfig struct {
-	Logger            log.FieldLogger
-	Libp2pHost        string
-	Libp2pPort        int
-	ConnectionRetries int
-	ConnectionTimeout time.Duration
-	BeaconAPI         BeaconAPI
-	BeaconAPIendpoint string
-	WaitForFulu       bool
-	InitTimeout       time.Duration
+	Logger                  log.FieldLogger
+	Libp2pHost              string
+	Libp2pPort              int
+	ConnectionRetries       int
+	ConnectionTimeout       time.Duration
+	BeaconAPI               BeaconAPI
+	BeaconAPIendpoint       string
+	BeaconAPIcustomClClient string
+	WaitForFulu             bool
+	InitTimeout             time.Duration
 }
 
 func (c *DasGuardianConfig) NewPrivateKey() (*crypto.Secp256k1PrivateKey, error) {
@@ -192,9 +193,10 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 		beaconApi = cfg.BeaconAPI
 	case cfg.BeaconAPIendpoint != "":
 		beaconApi, err = NewBeaconAPI(BeaconAPIConfig{
-			Logger:      cfg.Logger,
-			Endpoint:    cfg.BeaconAPIendpoint,
-			WaitForFulu: cfg.WaitForFulu,
+			Logger:         cfg.Logger,
+			Endpoint:       cfg.BeaconAPIendpoint,
+			WaitForFulu:    cfg.WaitForFulu,
+			CustomClClient: cfg.BeaconAPIcustomClClient,
 		})
 		if err != nil {
 			return nil, err
@@ -476,11 +478,9 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSele
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
 
-	slots, err := slotSelector(ctx, g.beaconApi, remoteStatus)
+	slots, err := slotSelector(ctx, g.beaconApi)
 	if err != nil {
 	}
-	randomSlotsLogs := visualizeRandomSlots(slots)
-	prettyLogrusFields(g.cfg.Logger, "to request slot->blobs ...", randomSlotsLogs)
 
 	// perform DAS
 	if len(slots) > 0 {
@@ -932,20 +932,20 @@ func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 	return metadataV2, metadataV3
 }
 
-func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, slots []SampleableSlot, columnIdxs []uint64) ([][]*DataColumnSidecarV1, error) {
+func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, sampSlot []SampleableSlot, columnIdxs []uint64) ([][]*DataColumnSidecarV1, error) {
 	g.cfg.Logger.WithFields(log.Fields{
-		"slots":   len(slots),
+		"slots":   len(sampSlot),
 		"columns": len(columnIdxs),
 	}).Info("sampling node for...")
 
 	// TODO: make sure that we limit the number of columns that we request (slots * idxs * columns)
-	dataColumns := make([][]*DataColumnSidecarV1, len(slots))
+	dataColumns := make([][]*DataColumnSidecarV1, len(sampSlot))
 
 	startT := time.Now()
 	// make the request for each slots
-	for s, slot := range slots {
+	for s, completeSlot := range sampSlot {
 		// make the request per each column
-		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, slot.Slot, columnIdxs)
+		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, completeSlot.Slot, columnIdxs)
 		if err != nil {
 			g.cfg.Logger.Error(err)
 			return dataColumns, err
@@ -955,7 +955,7 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 		// compose the results
 		g.cfg.Logger.WithFields(log.Fields{
 			"req-duration": duration,
-			"slot":         slot,
+			"slot":         completeSlot.Slot,
 			"das-result":   fmt.Sprintf("%d/%d columns", len(cols), len(columnIdxs)),
 		}).Info("req info...")
 	}

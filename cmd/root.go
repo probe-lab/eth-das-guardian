@@ -11,21 +11,23 @@ import (
 )
 
 var rootConfig = struct {
-	Libp2pHost        string
-	Libp2pPort        int
-	BeaconAPIendpoint string
-	ConnectionRetries int
-	ConnectionTimeout time.Duration
-	InitTimeout       time.Duration
-	WaitForFulu       bool
+	Libp2pHost              string
+	Libp2pPort              int
+	BeaconAPIendpoint       string
+	BeaconAPICustomClClient string
+	ConnectionRetries       int
+	ConnectionTimeout       time.Duration
+	InitTimeout             time.Duration
+	WaitForFulu             bool
 }{
-	Libp2pHost:        "127.0.0.1",
-	Libp2pPort:        9013,
-	BeaconAPIendpoint: "http://127.0.0.1:5052/",
-	ConnectionRetries: 3,
-	ConnectionTimeout: 30 * time.Second,
-	InitTimeout:       30 * time.Second,
-	WaitForFulu:       true,
+	Libp2pHost:              "127.0.0.1",
+	Libp2pPort:              9013,
+	BeaconAPIendpoint:       "http://127.0.0.1:5052/",
+	BeaconAPICustomClClient: "",
+	ConnectionRetries:       3,
+	ConnectionTimeout:       30 * time.Second,
+	InitTimeout:             30 * time.Second,
+	WaitForFulu:             true,
 }
 
 var rootCmd = &cli.Command{
@@ -57,6 +59,12 @@ var rootFlags = []cli.Flag{
 		Usage:       "The url endpoint of a Beacon API (http://localhost:5052/)",
 		Value:       rootConfig.BeaconAPIendpoint,
 		Destination: &rootConfig.BeaconAPIendpoint,
+	},
+	&cli.StringFlag{
+		Name:        "api.custom.cl",
+		Usage:       "Name of a custom CL client that we would like to query from the work-balancer ('lighthouse', 'prysm', 'nimbus')",
+		Value:       rootConfig.BeaconAPICustomClClient,
+		Destination: &rootConfig.BeaconAPICustomClClient,
 	},
 	&cli.IntFlag{
 		Name:        "connection.retries",

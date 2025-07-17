@@ -36,9 +36,10 @@ type BeaconAPI interface {
 }
 
 type BeaconAPIConfig struct {
-	Logger      log.FieldLogger
-	Endpoint    string
-	WaitForFulu bool
+	Logger         log.FieldLogger
+	Endpoint       string
+	WaitForFulu    bool
+	CustomClClient string
 }
 
 type BeaconAPIImpl struct {
@@ -52,13 +53,14 @@ type BeaconAPIImpl struct {
 }
 
 func NewBeaconAPI(cfg BeaconAPIConfig) (BeaconAPI, error) {
-	ethApiCfg := api.ClientConfig{
-		Endpoint:     cfg.Endpoint,
-		StateTimeout: ApiStateTimeout,
-		QueryTimeout: ApiQueryTimeout,
-		Logger:       cfg.Logger,
+	beaconApiCfg := api.ClientConfig{
+		Endpoint:       cfg.Endpoint,
+		StateTimeout:   ApiStateTimeout,
+		QueryTimeout:   ApiQueryTimeout,
+		CustomClClient: cfg.CustomClClient,
+		Logger:         cfg.Logger,
 	}
-	apiCli, err := api.NewClient(ethApiCfg)
+	apiCli, err := api.NewClient(beaconApiCfg)
 	if err != nil {
 		return nil, err
 	}

@@ -14,16 +14,18 @@ import (
 )
 
 type ClientConfig struct {
-	Endpoint     string
-	StateTimeout time.Duration
-	QueryTimeout time.Duration
-	Logger       log.FieldLogger
+	Endpoint       string
+	StateTimeout   time.Duration
+	QueryTimeout   time.Duration
+	CustomClClient string
+	Logger         log.FieldLogger
 }
 
 type Client struct {
-	cfg    ClientConfig
-	base   *url.URL
-	client *http.Client
+	cfg            ClientConfig
+	base           *url.URL
+	client         *http.Client
+	customClClient string
 }
 
 func NewClient(cfg ClientConfig) (*Client, error) {
@@ -44,9 +46,10 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}
 
 	cli := &Client{
-		cfg:    cfg,
-		base:   urlBase,
-		client: httpCli,
+		cfg:            cfg,
+		base:           urlBase,
+		client:         httpCli,
+		customClClient: cfg.CustomClClient,
 	}
 
 	return cli, nil
@@ -85,6 +88,10 @@ func (c *Client) get(
 
 	// we will only handle JSONs
 	req.Header.Set("Accept", "application/json")
+	// select an specific cl client from the work-balancer if defined
+	if c.customClClient != "" {
+		req.Header.Set("X-Dugtrio-Next-Endpoint", c.customClClient)
+	}
 
 	l := c.cfg.Logger.WithFields(log.Fields{
 		"url":    callURL,

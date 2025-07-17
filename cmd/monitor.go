@@ -38,7 +38,7 @@ var monitorFlags = []cli.Flag{
 		Destination: &monitorConfig.MonitorFrequency,
 	},
 	&cli.StringFlag{
-		Name:        "slot.ramge.type",
+		Name:        "slot.range.type",
 		Usage:       "Type of slots that will be queries from the remote node",
 		Value:       scanConfig.SlotRangeType,
 		Destination: &scanConfig.SlotRangeType,
@@ -60,6 +60,7 @@ var monitorFlags = []cli.Flag{
 func monitorAction(ctx context.Context, cmd *cli.Command) error {
 	log.WithFields(log.Fields{
 		"beacon-api":         rootConfig.BeaconAPIendpoint,
+		"beacon-cl-client":   rootConfig.BeaconAPICustomClClient,
 		"libp2p-host":        rootConfig.Libp2pHost,
 		"libp2p-port":        rootConfig.Libp2pPort,
 		"connection-retries": rootConfig.ConnectionRetries,
@@ -77,14 +78,15 @@ func monitorAction(ctx context.Context, cmd *cli.Command) error {
 	}).Info("monitor cmd...")
 
 	ethConfig := &dasguardian.DasGuardianConfig{
-		Logger:            logger,
-		Libp2pHost:        rootConfig.Libp2pHost,
-		Libp2pPort:        rootConfig.Libp2pPort,
-		ConnectionRetries: rootConfig.ConnectionRetries,
-		ConnectionTimeout: rootConfig.ConnectionTimeout,
-		BeaconAPIendpoint: rootConfig.BeaconAPIendpoint,
-		WaitForFulu:       rootConfig.WaitForFulu,
-		InitTimeout:       rootConfig.InitTimeout,
+		Logger:                  logger,
+		Libp2pHost:              rootConfig.Libp2pHost,
+		Libp2pPort:              rootConfig.Libp2pPort,
+		ConnectionRetries:       rootConfig.ConnectionRetries,
+		ConnectionTimeout:       rootConfig.ConnectionTimeout,
+		BeaconAPIendpoint:       rootConfig.BeaconAPIendpoint,
+		BeaconAPIcustomClClient: rootConfig.BeaconAPICustomClClient,
+		WaitForFulu:             rootConfig.WaitForFulu,
+		InitTimeout:             rootConfig.InitTimeout,
 	}
 
 	guardian, err := dasguardian.NewDASGuardian(ctx, ethConfig)
