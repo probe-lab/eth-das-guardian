@@ -64,7 +64,7 @@ func evaluateColumnResponses(
 			validSlot = (blobCount == 0)
 			if blobCount != 0 {
 				logger.Errorf(
-					"no data cols for slot (downloaded data-cols %d) (block %s)",
+					"no data cols for slot (downloaded data-cols %d) (block %d)",
 					len(cols[s]),
 					slot,
 				)

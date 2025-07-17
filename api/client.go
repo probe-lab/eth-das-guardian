@@ -17,6 +17,7 @@ type ClientConfig struct {
 	Endpoint     string
 	StateTimeout time.Duration
 	QueryTimeout time.Duration
+	Logger       log.FieldLogger
 }
 
 type Client struct {
@@ -85,21 +86,36 @@ func (c *Client) get(
 	// we will only handle JSONs
 	req.Header.Set("Accept", "application/json")
 
+	l := c.cfg.Logger.WithFields(log.Fields{
+		"url":    callURL,
+		"method": req.Method,
+	})
+	l.Info("requesting beacon API")
 	resp, err := c.client.Do(req)
+
 	if err != nil {
+		l.WithError(err).Warn("error requesting beacon API")
 		return respBody, errors.Wrap(err, fmt.Sprintf("unable to request URL %s", callURL.String()))
 	}
 	if resp == nil {
-		return respBody, errors.New("got empty response from the API")
+		err := errors.New("got empty response from the API")
+		l.WithError(err).Warn("error requesting beacon API")
+		return respBody, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err = io.ReadAll(resp.Body)
 	if err != nil {
+		l.WithError(err).Warn("failed to read response body")
 		return respBody, errors.Wrap(err, "reading response body")
 	}
 
-	// return copy of the request
+	if len(respBody) > 1024 {
+		l.Infof("successful beacon API response: [omitted due to length %d]", len(respBody))
+	} else {
+		l.Infof("successful beacon API response: %s", respBody)
+	}
+
 	return respBody, nil
 }
 

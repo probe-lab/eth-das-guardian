@@ -23,6 +23,8 @@ const (
 	RPCDataColumnSidecarsByRootTopicV1  = "/eth2/beacon_chain/req/data_column_sidecars_by_root/1/ssz_snappy"
 )
 
+type ErrorMessage []byte
+
 // Request/Response message types for Ethereum 2.0 P2P protocols
 type SSZUint64 uint64
 

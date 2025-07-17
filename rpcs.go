@@ -138,10 +138,7 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 	return resp, nil
 }
 
-func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, md *MetaDataV2) (resp *MetaDataV2, err error) {
-	if isNill(md) {
-		return nil, fmt.Errorf("the given local-metadata-v2 is a nil pointer")
-	}
+func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2, err error) {
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
@@ -150,7 +147,7 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, md *MetaDataV2) (
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
 
-	if err := r.writeRequest(stream, md); err != nil {
+	if err := r.writeRequest(stream, nil); err != nil {
 		stream.Reset()
 		return nil, fmt.Errorf("write metadata-v2 request: %w", err)
 	}
@@ -168,10 +165,7 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, md *MetaDataV2) (
 	return resp, nil
 }
 
-func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (resp *MetaDataV3, err error) {
-	if isNill(md) {
-		return nil, fmt.Errorf("the given local-metadata-v3 is a nil pointer")
-	}
+func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3, err error) {
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		if log.GetLevel() >= log.DebugLevel {
 			r.cfg.Logger.WithFields(log.Fields{
@@ -201,17 +195,7 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV3, pid, err)
 	}
 
-	if log.GetLevel() >= log.DebugLevel {
-		r.cfg.Logger.WithFields(log.Fields{
-			"peer_id":                     pid.String(),
-			"request_seq_number":          md.SeqNumber,
-			"request_attnets":             fmt.Sprintf("0x%x", md.Attnets),
-			"request_syncnets":            fmt.Sprintf("0x%x", md.Syncnets),
-			"request_custody_group_count": md.CustodyGroupCount,
-		}).Debug("Writing MetaDataV3 request with payload")
-	}
-
-	if err := r.writeRequest(stream, md); err != nil {
+	if err := r.writeRequest(stream, nil); err != nil {
 		stream.Reset()
 		if log.GetLevel() >= log.DebugLevel {
 			r.cfg.Logger.WithFields(log.Fields{
@@ -284,7 +268,7 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 	for i := uint64(0); ; i++ {
 		isFirstChunk := i == 0
 		block := &deneb.SignedBeaconBlock{}
-		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigest(uint64(startSlot)+i))
+		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigestFn(uint64(startSlot)+i))
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -325,7 +309,7 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 	for i := uint64(0); ; i++ {
 		isFirstChunk := i == 0
 		block := &deneb.SignedBeaconBlock{}
-		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigest(startSlot+i))
+		err := r.readChunkedResponse(stream, block, isFirstChunk, r.cfg.ForkDigestFn(startSlot+i))
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -370,7 +354,7 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	// read and decode column sidecar responses
 	for i := uint64(0); ; /* no stop condition */ i++ {
 		dataCol := &DataColumnSidecarV1{}
-		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigest(slot))
+		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigestFn(slot))
 		if errors.Is(err, io.EOF) {
 			// End of stream.
 			break

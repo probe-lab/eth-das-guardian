@@ -1,6 +1,7 @@
 package dasguardian
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -9,14 +10,17 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/libp2p/go-libp2p/core/event"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/pkg/errors"
+	"github.com/probe-lab/eth-das-guardian/api"
 	"github.com/wealdtech/go-bytesutil"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	gcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 
-	libp2p "github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p"
 	mplex "github.com/libp2p/go-libp2p-mplex"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -135,16 +139,20 @@ type DasGuardian struct {
 	cfg *DasGuardianConfig
 
 	// services
-	host    host.Host
-	apiCli  BeaconAPI
-	pubsub  *pubsub.PubSub
-	rpcServ *ReqResp
+	host      host.Host
+	beaconApi BeaconAPI
+	pubsub    *pubsub.PubSub
+	rpcServ   *ReqResp
 
-	// chain data
-	electraStatus   *StatusV1
-	electraMetadata *MetaDataV2
-	fuluStatus      *StatusV2
-	fuluMetadata    *MetaDataV3
+	nodeIdentity *api.NodeIdentity
+	localchain   ChainData
+}
+
+type ChainData struct {
+	*StatusV1
+	*MetaDataV2
+	*StatusV2
+	*MetaDataV3
 }
 
 func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, error) {
@@ -158,6 +166,23 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 	if err != nil {
 		return nil, err
 	}
+
+	sub, err := h.EventBus().Subscribe(event.WildcardSubscription)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start wildcard eventbus subscription: %w", err)
+	}
+
+	go func() {
+		defer sub.Close()
+		for {
+			select {
+			case evt := <-sub.Out():
+				cfg.Logger.WithField("event", fmt.Sprintf("%T%+v", evt, evt)).Info("received eventbus event")
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	pubsub, err := pubsub.NewGossipSub(ctx, h, cfg.PubsubOptions()...)
 	if err != nil {
@@ -183,10 +208,10 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 	}
 
 	guardian := &DasGuardian{
-		cfg:    cfg,
-		host:   h,
-		pubsub: pubsub,
-		apiCli: beaconApi,
+		cfg:       cfg,
+		host:      h,
+		pubsub:    pubsub,
+		beaconApi: beaconApi,
 	}
 
 	initCtx, initCancel := context.WithTimeout(ctx, cfg.InitTimeout)
@@ -204,33 +229,42 @@ func (g *DasGuardian) Host() host.Host {
 
 func (g *DasGuardian) init(ctx context.Context) error {
 	// init beacon-api
-	if err := g.apiCli.Init(ctx); err != nil {
+	if err := g.beaconApi.Init(ctx); err != nil {
 		return err
 	}
+
+	// get the information directly from the Beacon API
+	nodeIdentity, err := g.beaconApi.GetNodeIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	g.nodeIdentity = nodeIdentity
 
 	statusV1, statusV2, err := g.composeLocalBeaconStatus()
 	if err != nil {
 		return err
 	}
-
-	g.electraStatus = statusV1
-	g.fuluStatus = statusV2
 	prettyLogrusFields(g.cfg.Logger, "local beacon-status", map[string]any{
 		"head-slot":   statusV1.HeadSlot,
 		"fork-digest": fmt.Sprintf("0x%x", statusV1.ForkDigest),
 	})
 
 	metadataV2, metadataV3 := g.composeLocalBeaconMetadata()
-	g.electraMetadata = metadataV2
-	g.fuluMetadata = metadataV3
 	prettyLogrusFields(g.cfg.Logger, "local beacon-metadata", map[string]any{
 		"seq-number": metadataV2.SeqNumber,
 		"attnets":    metadataV2.Attnets,
 		"syncnets":   metadataV2.Syncnets,
 	})
 
+	g.localchain = ChainData{
+		StatusV1:   statusV1,
+		StatusV2:   statusV2,
+		MetaDataV2: metadataV2,
+		MetaDataV3: metadataV3,
+	}
+
 	// subscribe to main topics
-	forkDigest, err := g.apiCli.GetForkDigest(g.fuluStatus.HeadSlot)
+	forkDigest, err := g.beaconApi.GetForkDigest(statusV2.HeadSlot)
 	if err != nil {
 		return err
 	}
@@ -243,10 +277,11 @@ func (g *DasGuardian) init(ctx context.Context) error {
 		Logger:       g.cfg.Logger,
 		ReadTimeout:  g.cfg.ConnectionTimeout,
 		WriteTimeout: g.cfg.ConnectionTimeout,
-		ForkDigest: func(slot uint64) []byte {
-			digest, _ := g.apiCli.GetForkDigest(slot)
+		ForkDigestFn: func(slot uint64) []byte {
+			digest, _ := g.beaconApi.GetForkDigest(slot)
 			return digest
 		},
+		ChainData: g.localchain,
 	}
 	reqResp, err := NewReqResp(g.host, reqRespCfg)
 	if err != nil {
@@ -336,64 +371,59 @@ func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNo
 	return dasResults, nil
 }
 
-func (g *DasGuardian) scan(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
-	switch g.apiCli.GetStateVersion() {
-	case "electra":
-		return g.scanElectra(ctx, ethNode)
-	case "fulu":
-		return g.scanFulu(ctx, ethNode)
-	default:
-		return nil, fmt.Errorf("not recognized fork for the state %s", g.apiCli.GetStateVersion())
-	}
+type PeerInfo struct {
+	AddrInfo   *peer.AddrInfo
+	Enode      *enode.Node
+	Libp2pInfo Libp2pInfo
 }
 
-func (g *DasGuardian) scanElectra(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
+func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node) (*DasGuardianScanResult, error) {
 	// get the info from the ENR
-	enodeAddr, err := ParseMaddrFromEnode(ethNode)
+	addrinfo, err := ParseMaddrFromEnode(enode)
 	if err != nil {
 		return nil, err
 	}
 
-	// connection attempt using the libp2p host
-	if err := g.ConnectNode(ctx, enodeAddr); err != nil {
+	peerInfo, err := g.ConnectNode(ctx, addrinfo, enode)
+	if err != nil {
 		return nil, err
 	}
 
-	// extract the necessary information from the ethNode
-	libp2pInfo := g.libp2pPeerInfo(enodeAddr.ID, ethNode)
-
-	// exchange ping
-	startT := time.Now()
-	if err := g.rpcServ.Ping(ctx, enodeAddr.ID); err != nil {
-		return nil, err
+	switch g.beaconApi.GetStateVersion() {
+	case "electra":
+		return g.scanElectra(ctx, peerInfo)
+	case "fulu":
+		return g.scanFulu(ctx, peerInfo)
+	default:
+		return nil, fmt.Errorf("not recognized fork for the state %s", g.beaconApi.GetStateVersion())
 	}
-	libp2pInfo["ping_rtt"] = time.Since(startT)
-	prettyLogrusFields(g.cfg.Logger, "libp2p info...", libp2pInfo)
+}
 
+func (g *DasGuardian) scanElectra(ctx context.Context, peer *PeerInfo) (*DasGuardianScanResult, error) {
 	scanResult := &DasGuardianScanResult{
-		Libp2pInfo: libp2pInfo,
+		Libp2pInfo: peer.Libp2pInfo,
 	}
 
 	// exchange beacon-status
-	remoteStatus := g.requestBeaconStatusV1(ctx, enodeAddr.ID)
+	remoteStatus := g.requestBeaconStatusV1(ctx, peer.AddrInfo.ID)
 	if remoteStatus == nil {
-		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", peer.Enode.ID())
 	}
 	scanResult.RemoteStatusV1 = remoteStatus
 	statusLogs := g.visualizeBeaconStatusV1(remoteStatus)
 
 	// exchange beacon-metadata
-	remoteMetadata := g.requestBeaconMetadataV2(ctx, enodeAddr.ID)
+	remoteMetadata := g.requestBeaconMetadataV2(ctx, peer.AddrInfo.ID)
 	if remoteMetadata == nil {
-		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", peer.Enode.ID())
 	}
 
 	scanResult.RemoteMetadataV2 = remoteMetadata
 	metadataLogs := g.visualizeBeaconMetadataV2(remoteMetadata)
 
 	prettyLogrusFields(g.cfg.Logger, "scanning eth-node...", map[string]any{
-		"peer-id": enodeAddr.ID.String(),
-		"maddr":   enodeAddr.Addrs,
+		"peer-id": peer.AddrInfo.ID.String(),
+		"maddr":   peer.AddrInfo.Addrs,
 	})
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
@@ -401,61 +431,39 @@ func (g *DasGuardian) scanElectra(ctx context.Context, ethNode *enode.Node) (*Da
 	return scanResult, nil
 }
 
-func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
-	// get the info from the ENR
-	enodeAddr, err := ParseMaddrFromEnode(ethNode)
-	if err != nil {
-		return nil, err
-	}
-
-	enrCustody, err := GetCustodyFromEnr(ethNode)
-	if err != nil {
-		g.cfg.Logger.Warn(err.Error())
-	}
-	enrCustodyGroups, err := CustodyColumnsSlice(ethNode.ID(), enrCustody, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
-	if err != nil {
-		return nil, err
-	}
-
-	// connection attempt using the libp2p host
-	if err := g.ConnectNode(ctx, enodeAddr); err != nil {
-		return nil, err
-	}
-
-	// extract the necessary information from the ethNode
-	libp2pInfo := g.libp2pPeerInfo(enodeAddr.ID, ethNode)
-
-	// exchange ping
-	startT := time.Now()
-	if err := g.rpcServ.Ping(ctx, enodeAddr.ID); err != nil {
-		return nil, err
-	}
-	libp2pInfo["ping_rtt"] = time.Since(startT)
-	prettyLogrusFields(g.cfg.Logger, "libp2p info...", libp2pInfo)
-
+func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo) (*DasGuardianScanResult, error) {
 	scanResult := &DasGuardianScanResult{
-		Libp2pInfo: libp2pInfo,
+		Libp2pInfo: peerInfo.Libp2pInfo,
 	}
 
 	// exchange beacon-status
-	remoteStatus := g.requestBeaconStatusV2(ctx, enodeAddr.ID)
+	remoteStatus := g.requestBeaconStatusV2(ctx, peerInfo.AddrInfo.ID)
 	if remoteStatus == nil {
-		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", peerInfo.Enode.ID())
 	}
 	scanResult.RemoteStatusV2 = remoteStatus
 	statusLogs := g.visualizeBeaconStatusV2(remoteStatus)
 
 	// exchange beacon-metadata
-	remoteMetadata := g.requestBeaconMetadataV3(ctx, enodeAddr.ID)
+	remoteMetadata := g.requestBeaconMetadataV3(ctx, peerInfo.AddrInfo.ID)
 	if remoteMetadata == nil {
-		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", enodeAddr.ID)
+		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", peerInfo.Enode.ID())
 	}
 
 	scanResult.RemoteMetadataV3 = remoteMetadata
 	metadataLogs := g.visualizeBeaconMetadataV3(remoteMetadata)
-	metadataCustodyIdxs, err := CustodyColumnsSlice(ethNode.ID(), remoteMetadata.CustodyGroupCount, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
+	metadataCustodyIdxs, err := CustodyColumnsSlice(peerInfo.Enode.ID(), remoteMetadata.CustodyGroupCount, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
 	if err != nil {
 		return scanResult, errors.Wrap(err, "wrong cuystody subnet")
+	}
+
+	enrCustody, err := GetCustodyFromEnr(peerInfo.Enode)
+	if err != nil {
+		g.cfg.Logger.Warn(err.Error())
+	}
+	enrCustodyGroups, err := CustodyColumnsSlice(peerInfo.Enode.ID(), enrCustody, DataColumnSidecarSubnetCount, DataColumnSidecarSubnetCount)
+	if err != nil {
+		return nil, err
 	}
 
 	// compare enr custody to metadata one
@@ -464,8 +472,8 @@ func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (*DasGu
 	}
 
 	prettyLogrusFields(g.cfg.Logger, "scanning eth-node...", map[string]any{
-		"peer-id":            enodeAddr.ID.String(),
-		"maddr":              enodeAddr.Addrs,
+		"peer-id":            peerInfo.AddrInfo.ID.String(),
+		"maddr":              peerInfo.AddrInfo.Addrs,
 		"enr-custody":        enrCustody,
 		"enr-custody-groups": enrCustodyGroups,
 	})
@@ -475,7 +483,7 @@ func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (*DasGu
 	// select the random slots to sample
 	// limit to only Fulu supported
 	custSlots := int64(CustodySlots)
-	fuluForkEpoch := g.apiCli.GetFuluForkEpoch()
+	fuluForkEpoch := g.beaconApi.GetFuluForkEpoch()
 	if (int64(remoteStatus.HeadSlot) - int64(CustodySlots)) <= int64((fuluForkEpoch * 32)) {
 		custSlots = int64(remoteStatus.HeadSlot) - int64(fuluForkEpoch*32)
 	}
@@ -494,13 +502,13 @@ func (g *DasGuardian) scanFulu(ctx context.Context, ethNode *enode.Node) (*DasGu
 	}
 
 	// DAS??!?
-	dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, enodeAddr.ID, randomSlots, metadataCustodyIdxs[:])
+	dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, peerInfo.AddrInfo.ID, randomSlots, metadataCustodyIdxs[:])
 	if err != nil {
 		return scanResult, err
 	}
 
 	// evaluate and return the results
-	evalResult, err := evaluateColumnResponses(g.cfg.Logger, ethNode.ID().String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
+	evalResult, err := evaluateColumnResponses(g.cfg.Logger, peerInfo.Enode.ID().String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
 	if err != nil {
 		return scanResult, err
 	}
@@ -527,33 +535,29 @@ func (g *DasGuardian) MonitorEndpoint(ctx context.Context) error {
 }
 
 func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
-	// get the information directly from the Beacon API
-	nodeInfo, err := g.apiCli.GetNodeIdentity(ctx)
-	if err != nil {
-		return err
-	}
 	// extract the peering details from the ENR
-	enrNode, err := ParseNode(nodeInfo.Data.Enr)
+	enr, err := ParseNode(g.nodeIdentity.Data.Enr)
 	if err != nil {
 		return err
 	}
 
 	g.cfg.Logger.WithFields(log.Fields{
-		"peer-id":     nodeInfo.Data.PeerID,
-		"node-id":     enrNode.ID().String(),
-		"p2p-addrs":   nodeInfo.Data.Maddrs,
-		"discv-addrs": nodeInfo.Data.DiscvAddrs,
+		"peer-id":     g.nodeIdentity.Data.PeerID,
+		"node-id":     enr.ID().String(),
+		"p2p-addrs":   g.nodeIdentity.Data.Maddrs,
+		"discv-addrs": g.nodeIdentity.Data.DiscvAddrs,
+		"enr":         enr.String(),
 	}).Info()
 
 	// compare the results from the API with the ones from the ENR
 
-	if g.apiCli.GetStateVersion() == "fulu" {
+	if g.beaconApi.GetStateVersion() == "fulu" {
 		// cgc
-		enrCustody, err := GetCustodyFromEnr(enrNode)
+		enrCustody, err := GetCustodyFromEnr(enr)
 		if err != nil {
 			return err
 		}
-		apiCustody, _ := nodeInfo.CustodyInt()
+		apiCustody, _ := g.nodeIdentity.CustodyInt()
 		if enrCustody != uint64(apiCustody) {
 			g.cfg.Logger.WithFields(log.Fields{
 				"enr": enrCustody,
@@ -563,9 +567,12 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	}
 
 	// attesnets
-	enrAttnets := GetAttnetsFromEnr(enrNode)
-	apiAttnets := nodeInfo.Attnets()
-	if enrAttnets != apiAttnets {
+	enrAttnets, err := GetAttnetsFromEnr(enr)
+	if err != nil {
+		return fmt.Errorf("failed to get attnets from enr: %v", err)
+	}
+	apiAttnets := g.nodeIdentity.Attnets()
+	if !bytes.Equal(enrAttnets, apiAttnets) {
 		g.cfg.Logger.WithFields(log.Fields{
 			"enr": enrAttnets,
 			"api": apiAttnets,
@@ -573,9 +580,16 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	}
 
 	// syncnets
-	enrSyncnets := GetSyncnetsFromEnr(enrNode)
-	apiSyncnets := nodeInfo.Syncnets()
-	if enrAttnets != apiAttnets {
+	enrSyncnets, err := GetSyncnetsFromEnr(enr)
+	if err != nil {
+		return fmt.Errorf("failed to get syncnets from enr: %v", err)
+	}
+	if enrSyncnets == nil {
+		// Equate missing syncnets entry with no syncnets.
+		enrSyncnets = []byte{0x00}
+	}
+	apiSyncnets := g.nodeIdentity.Syncnets()
+	if !bytes.Equal(apiSyncnets, apiSyncnets) {
 		g.cfg.Logger.WithFields(log.Fields{
 			"enr": enrSyncnets,
 			"api": apiSyncnets,
@@ -584,7 +598,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 
 	// make the scan, and the the results
 	invalidSlots := make([]uint64, 0)
-	res, err := g.scan(ctx, enrNode)
+	res, err := g.scan(ctx, enr)
 	if err != nil {
 		return err
 	}
@@ -612,31 +626,60 @@ func (g *DasGuardian) subscribeToTopics(ctx context.Context, topics []string) er
 	return nil
 }
 
-func (g *DasGuardian) ConnectNode(ctx context.Context, pInfo *peer.AddrInfo) error {
-	// TODO: subscribe to the identify protocol event and ensure that we return when the peer is identified
+type Libp2pInfo map[string]any
 
+func (g *DasGuardian) ConnectNode(ctx context.Context, addrinfo *peer.AddrInfo, enode *enode.Node) (*PeerInfo, error) {
 	// for whatever reason, we need to record the adddress of the peer at the peerstore
-	g.host.Peerstore().AddAddrs(pInfo.ID, pInfo.Addrs, 24*time.Hour)
+	g.host.Peerstore().AddAddrs(addrinfo.ID, addrinfo.Addrs, 24*time.Hour)
 
 	for r := 1; r <= g.cfg.ConnectionRetries; r++ {
 		connCtx, connCancel := context.WithTimeout(ctx, g.cfg.ConnectionTimeout)
-		defer connCancel()
 		startT := time.Now()
-		if err := g.host.Connect(connCtx, *pInfo); err != nil {
-			g.cfg.Logger.Warnf("conn attempt %d failed - %s", r, err.Error())
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("main context died %s", ctx.Err().Error())
-			case <-time.After(Libp2pConnGraceTime - time.Since(startT)):
-				continue
-			}
-		} else {
-			g.cfg.Logger.Info("connected to remote node...")
-			return nil
+
+		err := g.host.Connect(connCtx, *addrinfo)
+		connCancel()
+		if err == nil {
+			break
+		}
+
+		g.cfg.Logger.Warnf("conn attempt %d failed - %s", r, err.Error())
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("main context died %s", ctx.Err().Error())
+		case <-time.After(Libp2pConnGraceTime - time.Since(startT)):
+			// TODO looks like a bug -- startT resets with every iteration
 		}
 	}
 
-	return fmt.Errorf("unreachable node")
+	// Test if we're indeed connected.
+	if g.host.Network().Connectedness(addrinfo.ID) != network.Connected {
+		return nil, fmt.Errorf("unreachable node")
+	}
+
+	// TODO: subscribe to the identify protocol event and ensure that we return when the peer is identified
+	// extract the necessary information from the ethNode
+	info := g.libp2pPeerInfo(addrinfo.ID, enode)
+	prettyLogrusFields(g.cfg.Logger, "libp2p info", info)
+	g.cfg.Logger.Info("attempting ping")
+
+	// Exchange ping.
+	// Not all CL clients support ping, so we'll just log errors and move on.
+	// TODO could fall back to ICMP ping if important
+	startT := time.Now()
+	if err := g.rpcServ.Ping(ctx, addrinfo.ID); err != nil {
+		g.cfg.Logger.WithError(err).Warn("libp2p ping failed; skipping")
+	} else {
+		elapsed := time.Since(startT)
+		info["ping_rtt"] = elapsed
+		g.cfg.Logger.Infof("libp2p RTT: %s", elapsed)
+	}
+
+	res := &PeerInfo{
+		AddrInfo:   addrinfo,
+		Enode:      enode,
+		Libp2pInfo: info,
+	}
+	return res, nil
 }
 
 func (g *DasGuardian) libp2pPeerInfo(pid peer.ID, ethNode *enode.Node) map[string]any {
@@ -684,14 +727,14 @@ func (g *DasGuardian) visualizeBeaconStatusV1(status *StatusV1) map[string]any {
 }
 
 func (g *DasGuardian) requestBeaconStatusV1(ctx context.Context, pid peer.ID) *StatusV1 {
-	status, err := g.rpcServ.StatusV1(ctx, pid, g.electraStatus)
+	status, err := g.rpcServ.StatusV1(ctx, pid, g.localchain.StatusV1)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-status-v1 - %s", err.Error())
 	}
 
 	// Debug: compare local vs remote fork digests
-	if status != nil && g.electraStatus != nil {
-		localForkDigest := fmt.Sprintf("0x%x", g.electraStatus.ForkDigest)
+	if status != nil && g.localchain.StatusV1 != nil {
+		localForkDigest := fmt.Sprintf("0x%x", g.localchain.StatusV1.ForkDigest)
 		remoteForkDigest := fmt.Sprintf("0x%x", status.ForkDigest)
 		match := localForkDigest == remoteForkDigest
 
@@ -734,12 +777,12 @@ func (g *DasGuardian) visualizeBeaconStatusV2(status *StatusV2) map[string]any {
 }
 
 func (g *DasGuardian) requestBeaconStatusV2(ctx context.Context, pid peer.ID) *StatusV2 {
-	status, err := g.rpcServ.StatusV2(ctx, pid, g.fuluStatus)
+	status, err := g.rpcServ.StatusV2(ctx, pid, g.localchain.StatusV2)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-status-v2 - %s, falling back to status-v1", err.Error())
 
 		// Fallback to status v1 if v2 fails
-		statusV1, err := g.rpcServ.StatusV1(ctx, pid, g.electraStatus)
+		statusV1, err := g.rpcServ.StatusV1(ctx, pid, g.localchain.StatusV1)
 		if err != nil {
 			g.cfg.Logger.Warnf("error requesting beacon-status-v1 fallback - %s", err.Error())
 			return nil
@@ -759,8 +802,8 @@ func (g *DasGuardian) requestBeaconStatusV2(ctx context.Context, pid peer.ID) *S
 	}
 
 	// Debug: compare local vs remote fork digests
-	if status != nil && g.fuluStatus != nil {
-		localForkDigest := fmt.Sprintf("0x%x", g.fuluStatus.ForkDigest)
+	if status != nil && g.localchain.StatusV2 != nil {
+		localForkDigest := fmt.Sprintf("0x%x", g.localchain.StatusV2.ForkDigest)
 		remoteForkDigest := fmt.Sprintf("0x%x", status.ForkDigest)
 		match := localForkDigest == remoteForkDigest
 
@@ -794,7 +837,7 @@ func (g *DasGuardian) visualizeBeaconMetadataV2(metadata *MetaDataV2) map[string
 }
 
 func (g *DasGuardian) requestBeaconMetadataV2(ctx context.Context, pid peer.ID) *MetaDataV2 {
-	metadata, err := g.rpcServ.MetaDataV2(ctx, pid, g.electraMetadata)
+	metadata, err := g.rpcServ.MetaDataV2(ctx, pid)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-metadata-v2 - %s", err.Error())
 	} else {
@@ -840,7 +883,7 @@ func (g *DasGuardian) requestBeaconMetadataV3(ctx context.Context, pid peer.ID) 
 		}).Debug("Peer protocol support check for MetaDataV3")
 	}
 
-	metadata, err := g.rpcServ.MetaDataV3(ctx, pid, g.fuluMetadata)
+	metadata, err := g.rpcServ.MetaDataV3(ctx, pid)
 	if err != nil {
 		g.cfg.Logger.WithFields(log.Fields{
 			"peer_id": pid.String(),
@@ -854,23 +897,23 @@ func (g *DasGuardian) requestBeaconMetadataV3(ctx context.Context, pid peer.ID) 
 
 func (g *DasGuardian) composeLocalBeaconStatus() (*StatusV1, *StatusV2, error) {
 	slot := uint64(0)
-	if headSlot := g.apiCli.GetLatestBlockHeader(); headSlot != nil {
+	if headSlot := g.beaconApi.GetLatestBlockHeader(); headSlot != nil {
 		slot = uint64(headSlot.Slot)
 	}
 
 	// fork digest
-	forkDigest, err := g.apiCli.GetForkDigest(slot)
+	forkDigest, err := g.beaconApi.GetForkDigest(slot)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// finalized
-	finalizedCheckpoint := g.apiCli.GetFinalizedCheckpoint()
+	finalizedCheckpoint := g.beaconApi.GetFinalizedCheckpoint()
 	finalizedRoot := bytesutil.ToBytes32(finalizedCheckpoint.Root[:])
 	finalizedEpoch := uint64(finalizedCheckpoint.Epoch)
 
 	// head
-	latestBlockHeader := g.apiCli.GetLatestBlockHeader()
+	latestBlockHeader := g.beaconApi.GetLatestBlockHeader()
 	headRoot := bytesutil.ToBytes32(latestBlockHeader.StateRoot[:])
 	headSlot := uint64(latestBlockHeader.Slot)
 
@@ -896,14 +939,14 @@ func (g *DasGuardian) composeLocalBeaconStatus() (*StatusV1, *StatusV2, error) {
 func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 	metadataV2 := &MetaDataV2{
 		SeqNumber: 0,
-		Attnets:   [8]byte{},
-		Syncnets:  [1]byte{},
+		Attnets:   [8]byte(g.nodeIdentity.Attnets()),
+		Syncnets:  [1]byte(g.nodeIdentity.Syncnets()),
 	}
 	metadataV3 := &MetaDataV3{
 		SeqNumber:         0,
-		Attnets:           [8]byte{},
-		Syncnets:          [1]byte{},
-		CustodyGroupCount: uint64(0),
+		Attnets:           [8]byte(g.nodeIdentity.Attnets()),
+		Syncnets:          [1]byte(g.nodeIdentity.Syncnets()),
+		CustodyGroupCount: uint64(128),
 	}
 	return metadataV2, metadataV3
 }
@@ -949,7 +992,7 @@ func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]*s
 	}).Info("requesting slot-blocks from beacon API...")
 	blocks := make([]*spec.VersionedSignedBeaconBlock, len(slots))
 	for i, slot := range slots {
-		b, err := g.apiCli.GetBeaconBlock(ctx, slot)
+		b, err := g.beaconApi.GetBeaconBlock(ctx, slot)
 		if err != nil {
 			return blocks, err
 		}
