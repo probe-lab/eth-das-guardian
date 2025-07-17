@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/pkg/errors"
@@ -479,7 +478,6 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSele
 
 	slots, err := slotSelector(ctx, g.beaconApi, remoteStatus)
 	if err != nil {
-
 	}
 	randomSlotsLogs := visualizeRandomSlots(slots)
 	prettyLogrusFields(g.cfg.Logger, "to request slot->blobs ...", randomSlotsLogs)
@@ -514,7 +512,6 @@ func (g *DasGuardian) MonitorEndpoint(ctx context.Context, slotSelector SlotSele
 				return err
 			}
 		}
-
 	}
 }
 
@@ -968,19 +965,4 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 		"duration": opDur,
 	}).Info("node custody sampling done...")
 	return dataColumns, nil
-}
-
-func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]*spec.VersionedSignedBeaconBlock, error) {
-	g.cfg.Logger.WithFields(log.Fields{
-		"slots": slots,
-	}).Info("requesting slot-blocks from beacon API...")
-	blocks := make([]*spec.VersionedSignedBeaconBlock, len(slots))
-	for i, slot := range slots {
-		b, err := g.beaconApi.GetBeaconBlock(ctx, slot)
-		if err != nil {
-			return blocks, err
-		}
-		blocks[i] = b
-	}
-	return blocks, nil
 }
