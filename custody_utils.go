@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/p2p/enr"
 	"github.com/holiman/uint256"
 	"github.com/pkg/errors"
 )
@@ -52,10 +53,13 @@ type SyncnetsEntry []byte
 func (c SyncnetsEntry) ENRKey() string { return "syncnets" }
 
 func GetSyncnetsFromEnr(ethNode *enode.Node) (SyncnetsEntry, error) {
-	enr := ethNode.Record()
+	record := ethNode.Record()
 
 	var syncnetsEntry SyncnetsEntry
-	err := enr.Load(&syncnetsEntry)
+	err := record.Load(&syncnetsEntry)
+	if enr.IsNotFound(err) {
+		return nil, nil
+	}
 	return syncnetsEntry, err
 }
 

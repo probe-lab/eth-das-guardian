@@ -536,23 +536,24 @@ func (g *DasGuardian) MonitorEndpoint(ctx context.Context) error {
 
 func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	// extract the peering details from the ENR
-	enrNode, err := ParseNode(g.nodeIdentity.Data.Enr)
+	enr, err := ParseNode(g.nodeIdentity.Data.Enr)
 	if err != nil {
 		return err
 	}
 
 	g.cfg.Logger.WithFields(log.Fields{
 		"peer-id":     g.nodeIdentity.Data.PeerID,
-		"node-id":     enrNode.ID().String(),
+		"node-id":     enr.ID().String(),
 		"p2p-addrs":   g.nodeIdentity.Data.Maddrs,
 		"discv-addrs": g.nodeIdentity.Data.DiscvAddrs,
+		"enr":         enr.String(),
 	}).Info()
 
 	// compare the results from the API with the ones from the ENR
 
 	if g.beaconApi.GetStateVersion() == "fulu" {
 		// cgc
-		enrCustody, err := GetCustodyFromEnr(enrNode)
+		enrCustody, err := GetCustodyFromEnr(enr)
 		if err != nil {
 			return err
 		}
@@ -566,7 +567,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	}
 
 	// attesnets
-	enrAttnets, err := GetAttnetsFromEnr(enrNode)
+	enrAttnets, err := GetAttnetsFromEnr(enr)
 	if err != nil {
 		return fmt.Errorf("failed to get attnets from enr: %v", err)
 	}
@@ -579,9 +580,13 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 	}
 
 	// syncnets
-	enrSyncnets, err := GetSyncnetsFromEnr(enrNode)
+	enrSyncnets, err := GetSyncnetsFromEnr(enr)
 	if err != nil {
 		return fmt.Errorf("failed to get syncnets from enr: %v", err)
+	}
+	if enrSyncnets == nil {
+		// Equate missing syncnets entry with no syncnets.
+		enrSyncnets = []byte{0x00}
 	}
 	apiSyncnets := g.nodeIdentity.Syncnets()
 	if !bytes.Equal(apiSyncnets, apiSyncnets) {
@@ -593,7 +598,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 
 	// make the scan, and the the results
 	invalidSlots := make([]uint64, 0)
-	res, err := g.scan(ctx, enrNode)
+	res, err := g.scan(ctx, enr)
 	if err != nil {
 		return err
 	}

@@ -43,7 +43,7 @@ func (i *NodeIdentity) Syncnets() []byte {
 	// TODO remove patch for Prysm, adding dummy data in missing fields.
 	// https://github.com/OffchainLabs/prysm/pull/15506
 	if i.Data.Metadata.Syncnets == nil {
-		return []byte{0x01}
+		return []byte{0x00}
 	}
 	return i.Data.Metadata.Syncnets
 }
