@@ -55,6 +55,7 @@ func NewBeaconAPI(cfg BeaconAPIConfig) (BeaconAPI, error) {
 		Endpoint:     cfg.Endpoint,
 		StateTimeout: ApiStateTimeout,
 		QueryTimeout: ApiQueryTimeout,
+		Logger:       cfg.Logger,
 	}
 	apiCli, err := api.NewClient(ethApiCfg)
 	if err != nil {
