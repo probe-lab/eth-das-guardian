@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/golang/snappy"
 	"github.com/libp2p/go-libp2p/core/network"
 	dynssz "github.com/pk910/dynamic-ssz"
@@ -163,6 +164,14 @@ func (r *ReqResp) writeRequest(stream network.Stream, req any) error {
 		}
 	}
 
+	log.WithFields(log.Fields{
+		"protocol":  stream.Protocol(),
+		"data":      hexutil.Encode(data),
+		"data_len":  len(data),
+		"wire_data": hexutil.Encode(buf.Bytes()),
+		"wire_len":  buf.Len(),
+	}).Info("writing request")
+
 	// Write buffer to the stream
 	if _, err := io.Copy(stream, &buf); err != nil {
 		return fmt.Errorf("failed to write final payload to stream: %w", err)
@@ -277,7 +286,8 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 		}).Debug("Raw response code received")
 	}
 
-	if code[0] != ResponseCodeSuccess {
+	success := code[0] == ResponseCodeSuccess
+	if !success {
 		if log.GetLevel() >= log.DebugLevel {
 			errorType := getResponseCodeName(code[0])
 			log.WithFields(log.Fields{
@@ -286,7 +296,6 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 				"error_type":    errorType,
 			}).Debug("Non-success response code received")
 		}
-		return fmt.Errorf("RPC error code: %d", code[0])
 	}
 
 	// Read uncompressed length prefix
@@ -334,6 +343,21 @@ func (r *ReqResp) readResponse(stream network.Stream, resp any) error {
 			"raw_data_hex":        fmt.Sprintf("0x%x", data),
 			"raw_data_len":        len(data),
 		}).Debug("Raw response data received")
+	}
+
+	if !success {
+		var errorMessage ErrorMessage
+		l := log.WithFields(log.Fields{
+			"response_type": responseType,
+			"raw_data_hex":  fmt.Sprintf("0x%x", data),
+		})
+		if err := sszCodec.UnmarshalSSZ(&errorMessage, data); err != nil {
+			l.WithError(err).Error("failed to unmarshal SSZ error message")
+			return fmt.Errorf("failed to unmarshal SSZ error message: %w", err)
+		}
+		msg := string(errorMessage)
+		l.Warnf("RPC failed; error message: %s", msg)
+		return fmt.Errorf("RPC failed: %s", msg)
 	}
 
 	// Unmarshal from SSZ
