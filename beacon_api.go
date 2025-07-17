@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"time"
 
@@ -281,22 +282,36 @@ func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 
 		blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
 		if !ok {
-			// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled
-			b.cfg.Logger.Info("BLOB_SCHEDULE not found (no BPO scheduled), skipping blob parameter computation")
+			// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled.
+			b.cfg.Logger.Warn("BLOB_SCHEDULE not found, if one is expected, this will cause network incompatibility")
 		}
+
+		type blobParam struct {
+			Epoch            uint64
+			MaxBlobsPerBlock uint64
+		}
+
+		var parsedSchedule []blobParam
 
 		for _, blobScheduleEntry := range blobSchedule {
 			blobScheduleMap := blobScheduleEntry.(map[string]any)
-			epoch, ok := blobScheduleMap["EPOCH"].(uint64)
-			if !ok {
-				continue
-			}
+			epoch := blobScheduleMap["EPOCH"].(uint64)
+			maxBlobs := blobScheduleMap["MAX_BLOBS_PER_BLOCK"].(uint64)
 
-			if epoch <= currentEpoch {
-				currentBlobParams.Epoch = epoch
-				currentBlobParams.MaxBlobsPerBlock = blobScheduleMap["MAX_BLOBS_PER_BLOCK"].(uint64)
-			} else {
-				break
+			parsedSchedule = append(parsedSchedule, blobParam{
+				Epoch:            epoch,
+				MaxBlobsPerBlock: maxBlobs,
+			})
+		}
+
+		sort.Slice(parsedSchedule, func(i, j int) bool {
+			return parsedSchedule[i].Epoch < parsedSchedule[j].Epoch
+		})
+
+		for _, param := range parsedSchedule {
+			if param.Epoch <= currentEpoch {
+				currentBlobParams.Epoch = param.Epoch
+				currentBlobParams.MaxBlobsPerBlock = param.MaxBlobsPerBlock
 			}
 		}
 	}
