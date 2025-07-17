@@ -36,7 +36,7 @@ func Test_ApiGetPeerDASstate(t *testing.T) {
 	httpCli, testMainCtx, cancel := genTestAPICli(t)
 	defer cancel()
 
-	_, err := httpCli.GetPeerDASstate(testMainCtx)
+	_, err := httpCli.GetBeaconStateHead(testMainCtx)
 	require.NoError(t, err)
 }
 

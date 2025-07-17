@@ -2,13 +2,12 @@ package dasguardian
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"math"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/holiman/uint256"
-	errors "github.com/pkg/errors"
+	"github.com/pkg/errors"
 )
 
 var (
@@ -39,15 +38,12 @@ type AttnetsEntry []byte
 
 func (c AttnetsEntry) ENRKey() string { return "attnets" }
 
-func GetAttnetsFromEnr(ethNode *enode.Node) string {
+func GetAttnetsFromEnr(ethNode *enode.Node) (AttnetsEntry, error) {
 	enr := ethNode.Record()
 
 	var attnetsEntry AttnetsEntry
 	err := enr.Load(&attnetsEntry)
-	if err != nil {
-		return "no-attnets"
-	}
-	return "0x" + hex.EncodeToString(attnetsEntry)
+	return attnetsEntry, err
 }
 
 // syncnets
@@ -55,15 +51,12 @@ type SyncnetsEntry []byte
 
 func (c SyncnetsEntry) ENRKey() string { return "syncnets" }
 
-func GetSyncnetsFromEnr(ethNode *enode.Node) string {
+func GetSyncnetsFromEnr(ethNode *enode.Node) (SyncnetsEntry, error) {
 	enr := ethNode.Record()
 
 	var syncnetsEntry SyncnetsEntry
 	err := enr.Load(&syncnetsEntry)
-	if err != nil {
-		return "no-syncnets"
-	}
-	return "0x" + hex.EncodeToString(syncnetsEntry)
+	return syncnetsEntry, err
 }
 
 // Mainly from: prysm/beacon-chain/core/peerdas/helpers.go

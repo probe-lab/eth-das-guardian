@@ -41,11 +41,11 @@ type BeaconAPIConfig struct {
 }
 
 type BeaconAPIImpl struct {
-	cfg    BeaconAPIConfig
-	apiCli *api.Client
+	cfg       BeaconAPIConfig
+	apiClient *api.Client
 
 	specs         map[string]any
-	headState     *api.PeerDASstate
+	headState     *api.BeaconState
 	forkSchedules api.ForkSchedule
 	fuluForkEpoch uint64
 }
@@ -63,20 +63,20 @@ func NewBeaconAPI(cfg BeaconAPIConfig) (BeaconAPI, error) {
 	}
 
 	return &BeaconAPIImpl{
-		cfg:    cfg,
-		apiCli: apiCli,
+		cfg:       cfg,
+		apiClient: apiCli,
 	}, nil
 }
 
 func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	// check api connection
-	if err := b.apiCli.CheckConnection(ctx); err != nil {
+	if err := b.apiClient.CheckConnection(ctx); err != nil {
 		return fmt.Errorf("connection to %s was stablished, but not active - %s", b.cfg.Endpoint, err.Error())
 	}
 	b.cfg.Logger.Info("connected to the beacon API...")
 
 	// Get node identity and ENR
-	nodeIdentity, err := b.apiCli.GetNodeIdentity(ctx)
+	nodeIdentity, err := b.apiClient.GetNodeIdentity(ctx)
 	if err != nil {
 		b.cfg.Logger.WithError(err).Warn("failed to get node identity")
 	} else {
@@ -93,14 +93,14 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	}
 
 	// get the config specs from the apiCli
-	specs, err := b.apiCli.GetConfigSpecs(ctx)
+	specs, err := b.apiClient.GetConfigSpecs(ctx)
 	if err != nil {
 		return err
 	}
 	b.specs = specs
 
 	// Get genesis data from the proper endpoint
-	genesisData, err := b.apiCli.GetGenesis(ctx)
+	genesisData, err := b.apiClient.GetGenesis(ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to get genesis data")
 	}
@@ -134,7 +134,7 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	}
 
 	// get the network configuration from the apiCli
-	forkSchedules, err := b.apiCli.GetNetworkConfig(ctx)
+	forkSchedules, err := b.apiClient.GetNetworkConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 	}
 
 	// compose and get the local Metadata
-	currentState, err := b.apiCli.GetPeerDASstate(ctx)
+	currentState, err := b.apiClient.GetBeaconStateHead(ctx)
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,7 @@ func (b *BeaconAPIImpl) Init(ctx context.Context) error {
 				return fmt.Errorf("tooled closed without reaching fulu upgrade")
 
 			case <-time.After(secondsToFulu):
-				currentState, err = b.apiCli.GetPeerDASstate(ctx)
+				currentState, err = b.apiClient.GetBeaconStateHead(ctx)
 				if err != nil {
 					return err
 				}
@@ -413,9 +413,9 @@ func (b *BeaconAPIImpl) GetFuluForkEpoch() uint64 {
 }
 
 func (b *BeaconAPIImpl) GetNodeIdentity(ctx context.Context) (*api.NodeIdentity, error) {
-	return b.apiCli.GetNodeIdentity(ctx)
+	return b.apiClient.GetNodeIdentity(ctx)
 }
 
 func (b *BeaconAPIImpl) GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error) {
-	return b.apiCli.GetBeaconBlock(ctx, slot)
+	return b.apiClient.GetBeaconBlock(ctx, slot)
 }

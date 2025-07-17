@@ -31,8 +31,8 @@ type ForkChoiceNode struct {
 	ExecutionBlockHash string `json:"execution_block_hash"`
 }
 
-func (c *Client) GetForkChoice(ctx context.Context) (ForkChoiceNode, error) {
-	var forkChoice ForkChoiceNode
+func (c *Client) GetForkChoice(ctx context.Context) (ForkChoice, error) {
+	var forkChoice ForkChoice
 
 	resp, err := c.get(ctx, c.cfg.QueryTimeout, ForkChoiceBase, "")
 	if err != nil {

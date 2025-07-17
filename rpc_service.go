@@ -42,7 +42,8 @@ type ReqRespConfig struct {
 	Logger       log.FieldLogger
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
-	ForkDigest   func(slot uint64) []byte
+	ForkDigestFn func(slot uint64) []byte
+	ChainData    ChainData
 }
 
 // ReqResp implements the request response domain of the eth2 RPC spec:
@@ -71,11 +72,11 @@ func (r *ReqResp) RegisterHandlers(ctx context.Context) error {
 	handlers := map[string]ContextStreamHandler{
 		RPCPingTopicV1:                      r.pingHandler,
 		RPCGoodByeTopicV1:                   r.goodbyeHandler,
-		RPCStatusTopicV1:                    r.dummyHandler,
-		RPCStatusTopicV2:                    r.dummyHandler,
+		RPCStatusTopicV1:                    r.chaindataHandler,
+		RPCStatusTopicV2:                    r.chaindataHandler,
 		RPCMetaDataTopicV1:                  r.dummyHandler,
-		RPCMetaDataTopicV2:                  r.dummyHandler,
-		RPCMetaDataTopicV3:                  r.dummyHandler,
+		RPCMetaDataTopicV2:                  r.chaindataHandler,
+		RPCMetaDataTopicV3:                  r.chaindataHandler,
 		RPCBlocksByRootTopicV1:              r.dummyHandler,
 		RPCBlocksByRootTopicV2:              r.dummyHandler,
 		RPCBlocksByRangeTopicV1:             r.dummyHandler,
@@ -139,6 +140,23 @@ func (r *ReqResp) goodbyeHandler(ctx context.Context, stream network.Stream) err
 		"reason":   reason,
 	}).Warnf("received GoodBye from %s", stream.Conn().RemotePeer().String())
 	return stream.Close()
+}
+
+func (r *ReqResp) chaindataHandler(ctx context.Context, stream network.Stream) error {
+	r.cfg.Logger.WithField("proto", stream.Protocol()).Info("chaindata")
+	defer stream.Close()
+	switch stream.Protocol() {
+	case RPCStatusTopicV1:
+		return r.writeResponse(stream, r.cfg.ChainData.StatusV1)
+	case RPCStatusTopicV2:
+		return r.writeResponse(stream, r.cfg.ChainData.StatusV2)
+	case RPCMetaDataTopicV2:
+		return r.writeResponse(stream, r.cfg.ChainData.MetaDataV2)
+	case RPCMetaDataTopicV3:
+		return r.writeResponse(stream, r.cfg.ChainData.MetaDataV3)
+	}
+	_ = stream.Reset()
+	return fmt.Errorf("unknown protocol %s", stream.Protocol())
 }
 
 func ParseGoodByeReason(num uint64) string {
