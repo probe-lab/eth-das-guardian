@@ -128,6 +128,8 @@ func readVarint(r io.Reader) (uint64, error) {
 
 // writeRequest writes a request to the stream with SSZ+Snappy encoding
 func (r *ReqResp) writeRequest(stream network.Stream, req any) error {
+	defer stream.CloseWrite()
+
 	// Set write deadline
 	if err := stream.SetWriteDeadline(time.Now().Add(r.cfg.WriteTimeout)); err != nil {
 		return fmt.Errorf("failed to set write deadline: %w", err)
