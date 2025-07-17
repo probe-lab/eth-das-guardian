@@ -36,6 +36,7 @@ var rootCmd = &cli.Command{
 	Commands: []*cli.Command{
 		cmdScan,
 		cmdMonitor,
+		cmdPlaytime,
 	},
 }
 
