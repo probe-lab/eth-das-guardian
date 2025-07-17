@@ -283,7 +283,7 @@ func (b *BeaconAPIImpl) GetForkDigest(slot uint64) ([]byte, error) {
 		blobSchedule, ok := b.specs["BLOB_SCHEDULE"].([]any)
 		if !ok {
 			// BLOB_SCHEDULE is not present - this happens when no BPO (Blob Parameter Override) is scheduled.
-			b.cfg.Logger.Warn("BLOB_SCHEDULE not found, if one is expected, this will cause this will cause network incompatibility")
+			b.cfg.Logger.Warn("BLOB_SCHEDULE not found, if one is expected, this will cause network incompatibility")
 		}
 
 		type blobParam struct {
