@@ -70,6 +70,7 @@ var scanFlags = []cli.Flag{
 func scanAction(ctx context.Context, cmd *cli.Command) error {
 	log.WithFields(log.Fields{
 		"beacon-api":         rootConfig.BeaconAPIendpoint,
+		"beacon-cl-client":   rootConfig.BeaconAPICustomClClient,
 		"libp2p-host":        rootConfig.Libp2pHost,
 		"libp2p-port":        rootConfig.Libp2pPort,
 		"connection-retries": rootConfig.ConnectionRetries,
@@ -84,14 +85,15 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 	logger := log.WithFields(log.Fields{})
 
 	ethConfig := &dasguardian.DasGuardianConfig{
-		Logger:            logger,
-		Libp2pHost:        rootConfig.Libp2pHost,
-		Libp2pPort:        rootConfig.Libp2pPort,
-		ConnectionRetries: rootConfig.ConnectionRetries,
-		ConnectionTimeout: rootConfig.ConnectionTimeout,
-		BeaconAPIendpoint: rootConfig.BeaconAPIendpoint,
-		WaitForFulu:       rootConfig.WaitForFulu,
-		InitTimeout:       rootConfig.InitTimeout,
+		Logger:                  logger,
+		Libp2pHost:              rootConfig.Libp2pHost,
+		Libp2pPort:              rootConfig.Libp2pPort,
+		ConnectionRetries:       rootConfig.ConnectionRetries,
+		ConnectionTimeout:       rootConfig.ConnectionTimeout,
+		BeaconAPIendpoint:       rootConfig.BeaconAPIendpoint,
+		BeaconAPIcustomClClient: rootConfig.BeaconAPICustomClClient,
+		WaitForFulu:             rootConfig.WaitForFulu,
+		InitTimeout:             rootConfig.InitTimeout,
 	}
 
 	guardian, err := dasguardian.NewDASGuardian(ctx, ethConfig)
