@@ -138,10 +138,7 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 	return resp, nil
 }
 
-func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, md *MetaDataV2) (resp *MetaDataV2, err error) {
-	if isNill(md) {
-		return nil, fmt.Errorf("the given local-metadata-v2 is a nil pointer")
-	}
+func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2, err error) {
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		return nil, err
 	}
@@ -150,7 +147,7 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, md *MetaDataV2) (
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
 
-	if err := r.writeRequest(stream, md); err != nil {
+	if err := r.writeRequest(stream, r.cfg.ChainData.MetaDataV2); err != nil {
 		stream.Reset()
 		return nil, fmt.Errorf("write metadata-v2 request: %w", err)
 	}
@@ -168,10 +165,7 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID, md *MetaDataV2) (
 	return resp, nil
 }
 
-func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (resp *MetaDataV3, err error) {
-	if isNill(md) {
-		return nil, fmt.Errorf("the given local-metadata-v3 is a nil pointer")
-	}
+func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3, err error) {
 	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
 		if log.GetLevel() >= log.DebugLevel {
 			r.cfg.Logger.WithFields(log.Fields{
@@ -201,17 +195,19 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID, md *MetaDataV3) (
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV3, pid, err)
 	}
 
+	req := r.cfg.ChainData.MetaDataV3
+
 	if log.GetLevel() >= log.DebugLevel {
 		r.cfg.Logger.WithFields(log.Fields{
 			"peer_id":                     pid.String(),
-			"request_seq_number":          md.SeqNumber,
-			"request_attnets":             fmt.Sprintf("0x%x", md.Attnets),
-			"request_syncnets":            fmt.Sprintf("0x%x", md.Syncnets),
-			"request_custody_group_count": md.CustodyGroupCount,
+			"request_seq_number":          req.SeqNumber,
+			"request_attnets":             fmt.Sprintf("0x%x", req.Attnets),
+			"request_syncnets":            fmt.Sprintf("0x%x", req.Syncnets),
+			"request_custody_group_count": req.CustodyGroupCount,
 		}).Debug("Writing MetaDataV3 request with payload")
 	}
 
-	if err := r.writeRequest(stream, nil); err != nil {
+	if err := r.writeRequest(stream, req); err != nil {
 		stream.Reset()
 		if log.GetLevel() >= log.DebugLevel {
 			r.cfg.Logger.WithFields(log.Fields{

@@ -832,7 +832,7 @@ func (g *DasGuardian) visualizeBeaconMetadataV2(metadata *MetaDataV2) map[string
 }
 
 func (g *DasGuardian) requestBeaconMetadataV2(ctx context.Context, pid peer.ID) *MetaDataV2 {
-	metadata, err := g.rpcServ.MetaDataV2(ctx, pid, g.localchain.MetaDataV2)
+	metadata, err := g.rpcServ.MetaDataV2(ctx, pid)
 	if err != nil {
 		g.cfg.Logger.Warnf("error requesting beacon-metadata-v2 - %s", err.Error())
 	} else {
@@ -878,7 +878,7 @@ func (g *DasGuardian) requestBeaconMetadataV3(ctx context.Context, pid peer.ID) 
 		}).Debug("Peer protocol support check for MetaDataV3")
 	}
 
-	metadata, err := g.rpcServ.MetaDataV3(ctx, pid, g.localchain.MetaDataV3)
+	metadata, err := g.rpcServ.MetaDataV3(ctx, pid)
 	if err != nil {
 		g.cfg.Logger.WithFields(log.Fields{
 			"peer_id": pid.String(),
