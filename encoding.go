@@ -135,13 +135,15 @@ func (r *ReqResp) writeRequest(stream network.Stream, req any) error {
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
 
-	var data []byte
-	if req != nil {
-		// Marshal to SSZ if the request is not nil
-		var err error
-		if data, err = sszCodec.MarshalSSZ(req); err != nil {
-			return fmt.Errorf("failed to marshal SSZ: %w", err)
-		}
+	if req == nil {
+		// we close the write side of the stream immediately, communicating we have no data to send
+		return nil
+	}
+
+	// Marshal to SSZ if the request is not nil
+	data, err := sszCodec.MarshalSSZ(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal SSZ: %w", err)
 	}
 
 	// Validate size
@@ -158,12 +160,9 @@ func (r *ReqResp) writeRequest(stream network.Stream, req any) error {
 		return fmt.Errorf("failed to write uncompressed length to buffer: %w", err)
 	}
 
-	// Only write if there's data to send.
-	if len(data) > 0 {
-		// Compress with snappy buffered writer
-		if _, err := writeSnappyBuffer(&buf, data); err != nil {
-			return fmt.Errorf("failed to compress data: %w", err)
-		}
+	// Compress with snappy buffered writer
+	if _, err := writeSnappyBuffer(&buf, data); err != nil {
+		return fmt.Errorf("failed to compress data: %w", err)
 	}
 
 	log.WithFields(log.Fields{
