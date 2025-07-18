@@ -99,7 +99,6 @@ func (c *Client) get(
 	})
 	l.Info("requesting beacon API")
 	resp, err := c.client.Do(req)
-
 	if err != nil {
 		l.WithError(err).Warn("error requesting beacon API")
 		return respBody, errors.Wrap(err, fmt.Sprintf("unable to request URL %s", callURL.String()))
@@ -110,6 +109,20 @@ func (c *Client) get(
 		return respBody, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		l.WithFields(log.Fields{
+			"status_code": resp.StatusCode,
+			"status":      resp.Status,
+		}).Warn("beacon API returned non-success status code")
+
+		// Read the error response body for better error messages
+		errorBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return respBody, fmt.Errorf("unable to read api-response %s", err.Error())
+		}
+		return respBody, fmt.Errorf("beacon API request failed %s - %s", resp.Status, string(errorBody))
+	}
 
 	respBody, err = io.ReadAll(resp.Body)
 	if err != nil {

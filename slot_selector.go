@@ -6,6 +6,7 @@ import (
 	mrand "math/rand"
 
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -19,7 +20,6 @@ func (s SlotRangeType) String() string { return string(s) }
 const (
 	NoSlots              SlotRangeType = "none"
 	CustomSlots          SlotRangeType = "custom"
-	RandomSlots          SlotRangeType = "random"
 	RandomNonMissedSlots SlotRangeType = "random-not-missed"
 	RandomWithBlobsSlots SlotRangeType = "random-with-blobs"
 	RandomAvailableSlots SlotRangeType = "random-available-slots"
@@ -27,10 +27,9 @@ const (
 
 func PrintSlotSelectorOptions() string {
 	return fmt.Sprintf(
-		"[%s, %s, %s, %s, %s, %s]",
+		"[%s, %s, %s, %s, %s]",
 		NoSlots.String(),
 		CustomSlots.String(),
-		RandomSlots.String(),
 		RandomNonMissedSlots.String(),
 		RandomWithBlobsSlots.String(),
 		RandomAvailableSlots.String(),
@@ -43,8 +42,6 @@ func SlotRangeTypeFromString(s string) SlotRangeType {
 		return NoSlots
 	case CustomSlots.String():
 		return CustomSlots
-	case RandomSlots.String():
-		return RandomSlots
 	case RandomNonMissedSlots.String():
 		return RandomNonMissedSlots
 	case RandomWithBlobsSlots.String():
@@ -52,7 +49,7 @@ func SlotRangeTypeFromString(s string) SlotRangeType {
 	case RandomAvailableSlots.String():
 		return RandomAvailableSlots
 	default:
-		return RandomSlots // default to Random
+		return RandomAvailableSlots
 	}
 }
 
@@ -73,7 +70,7 @@ func (p SlotRangeRequestParams) Validate() error {
 			return fmt.Errorf("no slots were given")
 		}
 
-	case RandomSlots, RandomNonMissedSlots, RandomWithBlobsSlots, RandomAvailableSlots:
+	case RandomNonMissedSlots, RandomWithBlobsSlots, RandomAvailableSlots:
 		if p.Range <= 0 {
 			return fmt.Errorf("no slot-range was given (%d)", p.Range)
 		}
@@ -92,8 +89,6 @@ func (p SlotRangeRequestParams) SlotSelector() SlotSelector {
 		return WithNoSlots()
 	case CustomSlots:
 		return WithCustomSlots(p.Slots)
-	case RandomSlots:
-		return WithRandomSlots(p.Range)
 	case RandomNonMissedSlots:
 		return WithRandomNonMissedSlots(p.Range)
 	case RandomWithBlobsSlots:
@@ -101,7 +96,7 @@ func (p SlotRangeRequestParams) SlotSelector() SlotSelector {
 	case RandomAvailableSlots:
 		return WithRandomAvailableSlots(p.Range)
 	default:
-		return WithRandomSlots(p.Range)
+		return WithRandomAvailableSlots(p.Range)
 	}
 }
 
@@ -167,48 +162,104 @@ func WithRandomSlots(n int32) SlotSelector {
 type validationFn func(*spec.VersionedSignedBeaconBlock) bool
 
 func GenerateRandomSlots(ctx context.Context, beaconApi BeaconAPI, n int32, valFn validationFn, statusV2 *StatusV2) ([]SampleableSlot, error) {
+	if n <= 0 {
+		return []SampleableSlot{}, nil
+	}
+
 	minSamplSlot, headerSlot, err := GetMinAndHeadSlot(beaconApi, statusV2)
 	if err != nil {
 		return nil, fmt.Errorf("getting min and head slots - %s", err.Error())
 	}
+	if headerSlot < minSamplSlot {
+		return nil, fmt.Errorf("invalid slot range: headerSlot (%d) < minSamplSlot (%d)", headerSlot, minSamplSlot)
+	}
+	availableSlots := headerSlot - minSamplSlot + 1
+	if availableSlots == 0 {
+		return []SampleableSlot{}, nil
+	}
 
-	// selectRandomSlotsForRange already caps bins to the available range
-	rawSlots := selectRandomSlotsForRange(minSamplSlot, headerSlot, uint64(n))
-
-	// Allocate exactly as many SampleableSlots as we got back
-	sampSlots := make([]SampleableSlot, 0)
+	sampSlots := make([]SampleableSlot, 0, n)
 	checkedSlots := make(map[uint64]struct{})
-	for _, slot := range rawSlots {
-		_, exists := checkedSlots[slot]
-		valid := false
-		bblock := new(spec.VersionedSignedBeaconBlock)
-		for (exists || !valid) && (slot <= headerSlot) {
-			bblock, err = beaconApi.GetBeaconBlock(ctx, slot)
+
+	maxIterations := 10 // Prevent infinite loops
+	iteration := 0
+
+	// Keep generating random slots until we have n valid ones
+	for len(sampSlots) < int(n) && iteration < maxIterations {
+		iteration++
+
+		// Calculate how many more slots we need
+		needed := int(n) - len(sampSlots)
+
+		// Generate a reasonable batch size (not too large)
+		batchSize := uint64(needed * 3) // 3x what we need
+		if batchSize > availableSlots {
+			batchSize = availableSlots
+		}
+		if batchSize > 100 { // Cap at reasonable limit
+			batchSize = 100
+		}
+
+		rawSlots := selectRandomSlotsForRange(minSamplSlot, headerSlot, batchSize)
+
+		validFound := false
+		for _, slot := range rawSlots {
+			if _, exists := checkedSlots[slot]; exists {
+				continue
+			}
+			checkedSlots[slot] = struct{}{}
+
+			bblock, err := beaconApi.GetBeaconBlock(ctx, slot)
 			if err != nil {
 				return nil, fmt.Errorf("retrieving slot %d - %v", slot, err)
 			}
-			checkedSlots[slot] = struct{}{}
-			valid = valFn(bblock)
-			slot++
+
+			if valFn(bblock) {
+				sampSlots = append(sampSlots, SampleableSlot{
+					Slot:        slot,
+					BeaconBlock: bblock,
+				})
+				validFound = true
+
+				if len(sampSlots) >= int(n) {
+					break
+				}
+			}
 		}
-		if !exists && valid {
-			sampSlots = append(sampSlots, SampleableSlot{Slot: slot, BeaconBlock: bblock})
+
+		// If we've checked all available slots or found no valid slots in this batch
+		if len(checkedSlots) >= int(availableSlots) {
+			break
+		}
+
+		// If we didn't find any valid slots in this iteration, increase batch size for next iteration
+		if !validFound && iteration < maxIterations-1 {
+			continue
 		}
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"total-requested": len(checkedSlots),
+		"valid-ones":      len(sampSlots),
+	}).Info("generated random slots for sampling")
+
 	return sampSlots, nil
 }
 
 func electraNonMissedBlockValidation(b *spec.VersionedSignedBeaconBlock) bool {
 	// accept only slots that are not missed
-	if b.Electra == nil {
+	if b == nil || b.Electra == nil {
 		return false
 	}
-	return true
+	return b.Electra.Message.Slot > 0
 }
 
 func electraNonBlocksWithBlobsValidation(b *spec.VersionedSignedBeaconBlock) bool {
 	// accept only slots that are not missed
-	if b.Electra == nil {
+	if b == nil || b.Electra == nil {
+		return false
+	}
+	if b.Electra.Message.Slot == 0 {
 		return false
 	}
 	return len(b.Electra.Message.Body.BlobKZGCommitments) > 0

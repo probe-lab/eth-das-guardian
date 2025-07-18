@@ -16,7 +16,6 @@ import (
 func TestSlotRangeType_String(t *testing.T) {
 	assert.Equal(t, "none", NoSlots.String())
 	assert.Equal(t, "custom", CustomSlots.String())
-	assert.Equal(t, "random", RandomSlots.String())
 	assert.Equal(t, "random-not-missed", RandomNonMissedSlots.String())
 	assert.Equal(t, "random-with-blobs", RandomWithBlobsSlots.String())
 	assert.Equal(t, "random-available-slots", RandomAvailableSlots.String())
@@ -29,12 +28,11 @@ func TestSlotRangeTypeFromString(t *testing.T) {
 	}{
 		{"none", NoSlots},
 		{"custom", CustomSlots},
-		{"random", RandomSlots},
 		{"random-not-missed", RandomNonMissedSlots},
 		{"random-with-blobs", RandomWithBlobsSlots},
 		{"random-available-slots", RandomAvailableSlots},
-		{"", RandomSlots},
-		{"invalid", RandomSlots},
+		{"", RandomAvailableSlots},
+		{"invalid", RandomAvailableSlots},
 	}
 
 	for _, tt := range tests {
@@ -52,8 +50,6 @@ func TestSlotRangeRequestParams_Validate(t *testing.T) {
 		{SlotRangeRequestParams{Type: NoSlots}, false, ""},
 		{SlotRangeRequestParams{Type: CustomSlots, Slots: []uint64{1, 2}}, false, ""},
 		{SlotRangeRequestParams{Type: CustomSlots, Slots: []uint64{}}, true, "no slots were given"},
-		{SlotRangeRequestParams{Type: RandomSlots, Range: 5}, false, ""},
-		{SlotRangeRequestParams{Type: RandomSlots, Range: 0}, true, "no slot-range was given (0)"},
 		{SlotRangeRequestParams{Type: RandomNonMissedSlots, Range: 3}, false, ""},
 		{SlotRangeRequestParams{Type: RandomWithBlobsSlots, Range: 2}, false, ""},
 		{SlotRangeRequestParams{Type: RandomAvailableSlots, Range: 3}, false, ""},
@@ -76,7 +72,6 @@ func TestSlotRangeRequestParams_SlotSelector_NotNil(t *testing.T) {
 	variants := []SlotRangeRequestParams{
 		{Type: NoSlots},
 		{Type: CustomSlots, Slots: []uint64{7, 8}},
-		{Type: RandomSlots, Range: 1},
 		{Type: RandomNonMissedSlots, Range: 2},
 		{Type: RandomWithBlobsSlots, Range: 3},
 		{Type: RandomAvailableSlots, Range: 4},
@@ -352,9 +347,9 @@ func TestWithRandomSlots_Integration(t *testing.T) {
 					Slot: phase0.Slot(1),
 					Body: &electra.BeaconBlockBody{
 						BlobKZGCommitments: []deneb.KZGCommitment{
-							deneb.KZGCommitment{},
-							deneb.KZGCommitment{},
-							deneb.KZGCommitment{},
+							{},
+							{},
+							{},
 						},
 					},
 				},
@@ -367,7 +362,6 @@ func TestWithRandomSlots_Integration(t *testing.T) {
 		factory  func(int32) SlotSelector
 		statusV2 *StatusV2
 	}{
-		{"RandomSlots", WithRandomSlots, &StatusV2{}},
 		{"RandomNonMissedSlots", WithRandomNonMissedSlots, &StatusV2{}},
 		{"RandomWithBlobsSlots", WithRandomWithBlobsSlots, &StatusV2{EarliestAvailableSlot: 32}}, // from the same fulu epoch
 	}
@@ -402,9 +396,9 @@ func TestWithRandomSlots_Integration(t *testing.T) {
 							Slot: phase0.Slot(1),
 							Body: &electra.BeaconBlockBody{
 								BlobKZGCommitments: []deneb.KZGCommitment{
-									deneb.KZGCommitment{},
-									deneb.KZGCommitment{},
-									deneb.KZGCommitment{},
+									{},
+									{},
+									{},
 								},
 							},
 						},
@@ -428,11 +422,12 @@ func TestWithRandomAvailableSlots(t *testing.T) {
 	electraBlock := &spec.VersionedSignedBeaconBlock{
 		Electra: &electra.SignedBeaconBlock{
 			Message: &electra.BeaconBlock{
+				Slot: phase0.Slot(1),
 				Body: &electra.BeaconBlockBody{
 					BlobKZGCommitments: []deneb.KZGCommitment{
-						deneb.KZGCommitment{}, // Mock commitment
-						deneb.KZGCommitment{}, // Mock commitment
-						deneb.KZGCommitment{}, // Mock commitment
+						{}, // Mock commitment
+						{}, // Mock commitment
+						{}, // Mock commitment
 					},
 				},
 			},
@@ -472,9 +467,9 @@ func TestGenerateRandomSlots_ValidationFunction(t *testing.T) {
 			Message: &electra.BeaconBlock{
 				Body: &electra.BeaconBlockBody{
 					BlobKZGCommitments: []deneb.KZGCommitment{
-						deneb.KZGCommitment{}, // Mock commitment
-						deneb.KZGCommitment{}, // Mock commitment
-						deneb.KZGCommitment{}, // Mock commitment
+						{}, // Mock commitment
+						{}, // Mock commitment
+						{}, // Mock commitment
 					},
 				},
 			},
@@ -562,9 +557,9 @@ func TestSlotRangeRequestParams_SlotSelector_RandomAvailableSlots(t *testing.T) 
 					Slot: phase0.Slot(1),
 					Body: &electra.BeaconBlockBody{
 						BlobKZGCommitments: []deneb.KZGCommitment{
-							deneb.KZGCommitment{}, // Mock commitment
-							deneb.KZGCommitment{}, // Mock commitment
-							deneb.KZGCommitment{}, // Mock commitment
+							{}, // Mock commitment
+							{}, // Mock commitment
+							{}, // Mock commitment
 						},
 					},
 				},

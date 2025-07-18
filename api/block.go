@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/electra"
@@ -38,6 +39,10 @@ func (c *Client) GetBeaconBlock(ctx context.Context, slot uint64) (*spec.Version
 	beaconBlock := &BeaconBlock{}
 	resp, err := c.get(ctx, c.cfg.QueryTimeout, fmt.Sprintf(BlockBase, slot), "")
 	if err != nil {
+		if strings.Contains(err.Error(), "404 Not Found") {
+			fmt.Println("not found!")
+			return new(spec.VersionedSignedBeaconBlock), nil
+		}
 		return nil, errors.Wrap(err, "requesting beacon-block")
 	}
 	err = json.Unmarshal(resp, &beaconBlock)

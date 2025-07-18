@@ -485,6 +485,7 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSele
 
 	// perform DAS
 	if len(slots) > 0 {
+		visualizeRandomSlots(slots)
 		dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, peerInfo.AddrInfo.ID, slots, metadataCustodyIdxs[:])
 		if err != nil {
 			return scanResult, err
