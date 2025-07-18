@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,6 +81,7 @@ func genTestAPICli(t *testing.T) (*Client, context.Context, context.CancelFunc) 
 		Endpoint:     localAvailTestIP,
 		StateTimeout: StateTimeout,
 		QueryTimeout: QueryTimeout,
+		Logger:       log.WithFields(log.Fields{}),
 	}
 
 	httpCli, err := NewClient(cfg)

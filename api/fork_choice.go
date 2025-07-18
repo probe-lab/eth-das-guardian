@@ -16,17 +16,17 @@ type ForkChoice struct {
 }
 
 type Checkpoint struct {
-	Epoch uint64 `json:"epoch"`
+	Epoch string `json:"epoch"`
 	Root  string `json:"root"`
 }
 
 type ForkChoiceNode struct {
-	Slot               uint64 `json:"slot"`
+	Slot               string `json:"slot"`
 	BlockRoot          string `json:"block_root"`
 	ParentRoot         string `json:"parent_root"`
 	JustifiedEpoch     string `json:"justified_epoch"`
 	FinalizedEpoch     string `json:"finalized_epoch"`
-	Weight             uint64 `json:"weight"`
+	Weight             string `json:"weight"`
 	Validity           string `json:"validity"`
 	ExecutionBlockHash string `json:"execution_block_hash"`
 }
