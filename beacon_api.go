@@ -24,20 +24,22 @@ const (
 )
 
 type BeaconAPI interface {
-	Init(ctx context.Context) error
+	Init(context.Context) error
 	GetStateVersion() string
 	GetForkDigest(slot uint64) ([]byte, error)
 	GetFinalizedCheckpoint() *phase0.Checkpoint
 	GetLatestBlockHeader() *phase0.BeaconBlockHeader
 	GetFuluForkEpoch() uint64
-	GetNodeIdentity(ctx context.Context) (*api.NodeIdentity, error)
+	GetNodeIdentity(context.Context) (*api.NodeIdentity, error)
 	GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error)
+	ReadSpecParameter(key string) (any, bool)
 }
 
 type BeaconAPIConfig struct {
-	Logger      log.FieldLogger
-	Endpoint    string
-	WaitForFulu bool
+	Logger         log.FieldLogger
+	Endpoint       string
+	WaitForFulu    bool
+	CustomClClient string
 }
 
 type BeaconAPIImpl struct {
@@ -51,13 +53,14 @@ type BeaconAPIImpl struct {
 }
 
 func NewBeaconAPI(cfg BeaconAPIConfig) (BeaconAPI, error) {
-	ethApiCfg := api.ClientConfig{
-		Endpoint:     cfg.Endpoint,
-		StateTimeout: ApiStateTimeout,
-		QueryTimeout: ApiQueryTimeout,
-		Logger:       cfg.Logger,
+	beaconApiCfg := api.ClientConfig{
+		Endpoint:       cfg.Endpoint,
+		StateTimeout:   ApiStateTimeout,
+		QueryTimeout:   ApiQueryTimeout,
+		CustomClClient: cfg.CustomClClient,
+		Logger:         cfg.Logger,
 	}
-	apiCli, err := api.NewClient(ethApiCfg)
+	apiCli, err := api.NewClient(beaconApiCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -418,4 +421,9 @@ func (b *BeaconAPIImpl) GetNodeIdentity(ctx context.Context) (*api.NodeIdentity,
 
 func (b *BeaconAPIImpl) GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error) {
 	return b.apiClient.GetBeaconBlock(ctx, slot)
+}
+
+func (b *BeaconAPIImpl) ReadSpecParameter(key string) (any, bool) {
+	value, ok := b.specs[key]
+	return value, ok
 }

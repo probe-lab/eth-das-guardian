@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package dasguardian
 
 import (
@@ -35,7 +38,7 @@ func Test_DASGuardianClientInterop(t *testing.T) {
 			ethNode, err := ParseNode(enr)
 			require.NoError(t, err, "enr parsing failed for client %s", client)
 
-			_, err = guardian.Scan(testCtx, ethNode)
+			_, err = guardian.Scan(testCtx, ethNode, WithRandomSlots(4))
 			require.NoError(t, err, "interop test failed for client %s", client)
 		})
 	}
