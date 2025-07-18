@@ -478,7 +478,7 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSele
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
 
-	slots, err := slotSelector(ctx, g.beaconApi)
+	slots, err := slotSelector(ctx, g.beaconApi, remoteStatus)
 	if err != nil {
 		return scanResult, errors.Wrap(err, "failed to select slots")
 	}

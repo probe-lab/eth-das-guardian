@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/pkg/errors"
@@ -20,7 +19,7 @@ var scanConfig = struct {
 }{
 	NodeKeys:        make([]string, 0),
 	ScanConcurrency: int32(4),
-	SlotRangeType:   dasguardian.RandomSlots.String(),
+	SlotRangeType:   dasguardian.RandomAvailableSlots.String(),
 	SlotRange:       int32(5),
 	SlotCustomRange: make([]uint64, 0),
 }
@@ -49,7 +48,7 @@ var scanFlags = []cli.Flag{
 	&cli.StringFlag{
 		Name:        "slot.range.type",
 		Usage:       "Type of slots that will be queried from the remote node",
-		DefaultText: fmt.Sprintf("[%s, %s, %s]", dasguardian.NoSlots, dasguardian.RandomSlots, dasguardian.CustomSlots),
+		DefaultText: dasguardian.PrintSlotSelectorOptions(),
 		Value:       scanConfig.SlotRangeType,
 		Destination: &scanConfig.SlotRangeType,
 	},

@@ -17,7 +17,7 @@ var monitorConfig = struct {
 	SlotCustomRange  []uint64
 }{
 	MonitorFrequency: 1 * time.Minute,
-	SlotRangeType:    dasguardian.RandomSlots.String(),
+	SlotRangeType:    dasguardian.RandomAvailableSlots.String(),
 	SlotRange:        int32(5),
 	SlotCustomRange:  make([]uint64, 0),
 }
@@ -40,6 +40,7 @@ var monitorFlags = []cli.Flag{
 	&cli.StringFlag{
 		Name:        "slot.range.type",
 		Usage:       "Type of slots that will be queries from the remote node",
+		DefaultText: dasguardian.PrintSlotSelectorOptions(),
 		Value:       scanConfig.SlotRangeType,
 		Destination: &scanConfig.SlotRangeType,
 	},

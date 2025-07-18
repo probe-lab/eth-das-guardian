@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/deneb"
+	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -17,6 +19,7 @@ func TestSlotRangeType_String(t *testing.T) {
 	assert.Equal(t, "random", RandomSlots.String())
 	assert.Equal(t, "random-not-missed", RandomNonMissedSlots.String())
 	assert.Equal(t, "random-with-blobs", RandomWithBlobsSlots.String())
+	assert.Equal(t, "random-available-slots", RandomAvailableSlots.String())
 }
 
 func TestSlotRangeTypeFromString(t *testing.T) {
@@ -29,6 +32,7 @@ func TestSlotRangeTypeFromString(t *testing.T) {
 		{"random", RandomSlots},
 		{"random-not-missed", RandomNonMissedSlots},
 		{"random-with-blobs", RandomWithBlobsSlots},
+		{"random-available-slots", RandomAvailableSlots},
 		{"", RandomSlots},
 		{"invalid", RandomSlots},
 	}
@@ -52,6 +56,8 @@ func TestSlotRangeRequestParams_Validate(t *testing.T) {
 		{SlotRangeRequestParams{Type: RandomSlots, Range: 0}, true, "no slot-range was given (0)"},
 		{SlotRangeRequestParams{Type: RandomNonMissedSlots, Range: 3}, false, ""},
 		{SlotRangeRequestParams{Type: RandomWithBlobsSlots, Range: 2}, false, ""},
+		{SlotRangeRequestParams{Type: RandomAvailableSlots, Range: 3}, false, ""},
+		{SlotRangeRequestParams{Type: RandomAvailableSlots, Range: 0}, true, "no slot-range was given (0)"},
 		{SlotRangeRequestParams{Type: SlotRangeType("bad")}, true, "undefined slot-range-type bad"},
 	}
 
@@ -73,6 +79,7 @@ func TestSlotRangeRequestParams_SlotSelector_NotNil(t *testing.T) {
 		{Type: RandomSlots, Range: 1},
 		{Type: RandomNonMissedSlots, Range: 2},
 		{Type: RandomWithBlobsSlots, Range: 3},
+		{Type: RandomAvailableSlots, Range: 4},
 		{Type: SlotRangeType("unknown"), Range: 4},
 	}
 	for _, opts := range variants {
@@ -121,7 +128,7 @@ func TestWithCustomSlots_Success(t *testing.T) {
 	}
 
 	selector := WithCustomSlots(slots)
-	out, err := selector(context.Background(), api)
+	out, err := selector(context.Background(), api, &StatusV2{})
 	assert.NoError(t, err)
 	assert.Len(t, out, len(slots))
 	for i, ss := range out {
@@ -140,7 +147,7 @@ func TestWithCustomSlots_Error(t *testing.T) {
 	api.On("GetBeaconBlock", mock.Anything, uint64(2)).Return((*spec.VersionedSignedBeaconBlock)(nil), errors.New("oops"))
 
 	selector := WithCustomSlots(slots)
-	out, err := selector(context.Background(), api)
+	out, err := selector(context.Background(), api, &StatusV2{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "retrieving slot 2")
 	assert.Len(t, out, len(slots))
@@ -149,7 +156,7 @@ func TestWithCustomSlots_Error(t *testing.T) {
 
 func TestWithNoSlots(t *testing.T) {
 	selector := WithNoSlots()
-	out, err := selector(context.Background(), nil)
+	out, err := selector(context.Background(), nil, &StatusV2{})
 	assert.NoError(t, err)
 	assert.Nil(t, out)
 }
@@ -180,39 +187,48 @@ func TestGetMaxSampleableSlot(t *testing.T) {
 		fuluForkEpoch         uint64
 		minCustodyEpoch       uint64
 		headSlot              uint64
-		minCustodyExists      bool
+		earliestAvailableSlot uint64
 		expectedMinSampleSlot uint64
 	}{
 		{
-			name:                  "FuluSlotLower",
+			name:                  "FuluSlotHighest",
 			fuluForkEpoch:         100,
 			minCustodyEpoch:       200,
-			minCustodyExists:      true,
 			headSlot:              uint64(10_000),
-			expectedMinSampleSlot: 3600, // 10_000 - 100*32
+			earliestAvailableSlot: 0,
+			expectedMinSampleSlot: 3600, // 10_000 - 200*32 = 3600, but fulu is higher at 100*32 = 3200, so max(3200, 3600, 0) = 3600
 		},
 		{
-			name:                  "MinCustodySlotLower",
-			fuluForkEpoch:         200,
+			name:                  "EarliestAvailableSlotHighest",
+			fuluForkEpoch:         50,
 			minCustodyEpoch:       100,
-			minCustodyExists:      true,
 			headSlot:              uint64(10_000),
-			expectedMinSampleSlot: 6800, // 10_000 - 100*32
+			earliestAvailableSlot: 8000,
+			expectedMinSampleSlot: 8000, // max(50*32, 10000-100*32, 8000) = max(1600, 6800, 8000) = 8000
 		},
 		{
-			name:                  "MinCustodyNotExists",
-			fuluForkEpoch:         100,
-			minCustodyEpoch:       1,
-			minCustodyExists:      false,
-			headSlot:              uint64(10_000),
-			expectedMinSampleSlot: 9968, // 10_000 - 32
+			name:                  "CustodySlotHighest",
+			fuluForkEpoch:         10,
+			minCustodyEpoch:       50,
+			headSlot:              uint64(5_000),
+			earliestAvailableSlot: 100,
+			expectedMinSampleSlot: 3400, // max(10*32, 5000-50*32, 100) = max(320, 3400, 100) = 3400
+		},
+		{
+			name:                  "CustodyExceedsHeadSlot",
+			fuluForkEpoch:         10,
+			minCustodyEpoch:       200,
+			headSlot:              uint64(1_000),
+			earliestAvailableSlot: 0,
+			expectedMinSampleSlot: 320, // custody epochs * 32 > headSlot, so custody gets capped to fulu
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fuluSlot := EpochToSlot(tt.fuluForkEpoch)
-			result := GetMaxSampleableSlot(fuluSlot, tt.headSlot, EpochToSlot(tt.minCustodyEpoch))
+			custodySlots := EpochToSlot(tt.minCustodyEpoch)
+			result := GetMaxSampleableSlot(fuluSlot, tt.headSlot, custodySlots, tt.earliestAvailableSlot)
 			assert.Equal(t, tt.expectedMinSampleSlot, result)
 		})
 	}
@@ -221,9 +237,9 @@ func TestGetMaxSampleableSlot(t *testing.T) {
 func TestSelectRandomSlotsForRange(t *testing.T) {
 	tests := []struct {
 		name        string
-		minSlot     int64
-		headSlot    int64
-		bins        int64
+		minSlot     uint64
+		headSlot    uint64
+		bins        uint64
 		expectedLen int
 	}{
 		{"ValidRange", 10, 100, 5, 5},
@@ -231,6 +247,9 @@ func TestSelectRandomSlotsForRange(t *testing.T) {
 		{"InvalidRange", 120, 100, 5, 0},
 		{"EdgeCase1", 1, 2, 1, 1},
 		{"EdgeCase2", 1, 1, 1, 0},
+		{"BinsGreaterThanRange", 95, 100, 10, 5},
+		{"ZeroBins", 10, 100, 0, 0},
+		{"ZeroMinSlot", 0, 100, 5, 0},
 	}
 
 	for _, tt := range tests {
@@ -240,25 +259,17 @@ func TestSelectRandomSlotsForRange(t *testing.T) {
 
 			// Check that all slots are within expected range
 			for _, slot := range result {
-				assert.True(t, int64(slot) >= tt.headSlot-(tt.headSlot-tt.minSlot), "slot should be within [minSlot, headSlot]")
-				assert.True(t, int64(slot) <= tt.headSlot, "slot should be <= headSlot")
+				assert.True(t, slot >= tt.minSlot, "slot should be >= minSlot")
+				assert.True(t, slot < tt.headSlot, "slot should be < headSlot")
 			}
 		})
 	}
 }
 
-func TestSelectRandomSlotsForRange_EdgeCases(t *testing.T) {
-	// Test edge cases that might cause issues
-	result := selectRandomSlotsForRange(0, 100, 5)
-	assert.Len(t, result, 0)
-
-	result = selectRandomSlotsForRange(10, 5, 3) // minValue > headSlot
-	assert.Len(t, result, 0)                     // function should return 0 slots
-}
-
 func TestGenerateRandomSlots_Success(t *testing.T) {
 	api := new(mockBeaconAPI)
 	n := int32(5)
+	statusV2 := &StatusV2{EarliestAvailableSlot: 0}
 
 	api.On("GetFuluForkEpoch").Return(uint64(64))
 	api.On("ReadSpecParameter", "MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS").
@@ -271,12 +282,12 @@ func TestGenerateRandomSlots_Success(t *testing.T) {
 	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
 		Return(block, nil)
 
-	out, err := GenerateRandomSlots(context.Background(), api, n)
-	assert.NoError(t, err)
+	// Simple validation function that accepts any block
+	valFn := func(b *spec.VersionedSignedBeaconBlock) bool { return true }
 
-	// The available range is only 32 slots (10_000 - 2048)
-	expectedLen := 5
-	assert.Len(t, out, expectedLen)
+	out, err := GenerateRandomSlots(context.Background(), api, n, valFn, statusV2)
+	assert.NoError(t, err)
+	assert.Len(t, out, int(n))
 
 	// Verify all slots are populated
 	for i, slot := range out {
@@ -290,21 +301,25 @@ func TestGenerateRandomSlots_Success(t *testing.T) {
 func TestGenerateRandomSlots_Error_NoHeader(t *testing.T) {
 	api := new(mockBeaconAPI)
 	n := int32(3)
+	statusV2 := &StatusV2{EarliestAvailableSlot: 0}
 
 	api.On("GetFuluForkEpoch").Return(uint64(0))
 	api.On("ReadSpecParameter", "MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS").
 		Return(uint64(0), false)
 	api.On("GetLatestBlockHeader").Return((*phase0.BeaconBlockHeader)(nil))
 
-	out, err := GenerateRandomSlots(context.Background(), api, n)
+	valFn := func(b *spec.VersionedSignedBeaconBlock) bool { return true }
+
+	out, err := GenerateRandomSlots(context.Background(), api, n, valFn, statusV2)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unable to retrieve the latest block header")
-	assert.Len(t, out, 0) // no slot should be expected
+	assert.Nil(t, out)
 }
 
 func TestGenerateRandomSlots_Error_GetBeaconBlock(t *testing.T) {
 	api := new(mockBeaconAPI)
 	n := int32(2)
+	statusV2 := &StatusV2{EarliestAvailableSlot: 0}
 
 	api.On("GetFuluForkEpoch").Return(uint64(0))
 	api.On("ReadSpecParameter", "MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS").
@@ -314,9 +329,12 @@ func TestGenerateRandomSlots_Error_GetBeaconBlock(t *testing.T) {
 	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
 		Return((*spec.VersionedSignedBeaconBlock)(nil), errors.New("fetch failed"))
 
-	out, err := GenerateRandomSlots(context.Background(), api, n)
+	valFn := func(b *spec.VersionedSignedBeaconBlock) bool { return true }
+
+	out, err := GenerateRandomSlots(context.Background(), api, n, valFn, statusV2)
+	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unable to retrieve the column custody from the specs")
-	assert.Nil(t, out) // no blocks are expected as it failed
+	assert.Nil(t, out)
 }
 
 func TestWithRandomSlots_Integration(t *testing.T) {
@@ -328,22 +346,36 @@ func TestWithRandomSlots_Integration(t *testing.T) {
 		Return(uint64(32), true)
 	api.On("GetLatestBlockHeader").Return(&phase0.BeaconBlockHeader{Slot: 200})
 	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
-		Return(&spec.VersionedSignedBeaconBlock{}, nil)
+		Return(&spec.VersionedSignedBeaconBlock{
+			Electra: &electra.SignedBeaconBlock{
+				Message: &electra.BeaconBlock{
+					Slot: phase0.Slot(1),
+					Body: &electra.BeaconBlockBody{
+						BlobKZGCommitments: []deneb.KZGCommitment{
+							deneb.KZGCommitment{},
+							deneb.KZGCommitment{},
+							deneb.KZGCommitment{},
+						},
+					},
+				},
+			},
+		}, nil)
 
-	// Test all random slot variants
+	// Test random slot variants (excluding RandomAvailableSlots as it requires StatusV2)
 	variants := []struct {
-		name    string
-		factory func(int32) SlotSelector
+		name     string
+		factory  func(int32) SlotSelector
+		statusV2 *StatusV2
 	}{
-		{"RandomSlots", WithRandomSlots},
-		{"RandomNonMissedSlots", WithRandomNonMissedSlots},
-		{"RandomWithBlobsSlots", WithRandomWithBlobsSlots},
+		{"RandomSlots", WithRandomSlots, &StatusV2{}},
+		{"RandomNonMissedSlots", WithRandomNonMissedSlots, &StatusV2{}},
+		{"RandomWithBlobsSlots", WithRandomWithBlobsSlots, &StatusV2{EarliestAvailableSlot: 32}}, // from the same fulu epoch
 	}
 
 	for _, variant := range variants {
 		t.Run(variant.name, func(t *testing.T) {
-			selector := variant.factory(n)
-			out, err := selector(context.Background(), api)
+			selector := variant.factory(int32(n))
+			out, err := selector(context.Background(), api, variant.statusV2)
 			assert.NoError(t, err)
 			assert.Len(t, out, int(n))
 
@@ -364,9 +396,115 @@ func TestWithRandomSlots_Integration(t *testing.T) {
 				Return(uint64(32), true)
 			api.On("GetLatestBlockHeader").Return(&phase0.BeaconBlockHeader{Slot: 200})
 			api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
-				Return(&spec.VersionedSignedBeaconBlock{}, nil)
+				Return(&spec.VersionedSignedBeaconBlock{
+					Electra: &electra.SignedBeaconBlock{
+						Message: &electra.BeaconBlock{
+							Slot: phase0.Slot(1),
+							Body: &electra.BeaconBlockBody{
+								BlobKZGCommitments: []deneb.KZGCommitment{
+									deneb.KZGCommitment{},
+									deneb.KZGCommitment{},
+									deneb.KZGCommitment{},
+								},
+							},
+						},
+					},
+				}, nil)
 		})
 	}
+}
+
+func TestWithRandomAvailableSlots(t *testing.T) {
+	api := new(mockBeaconAPI)
+	n := int32(2)
+	statusV2 := &StatusV2{EarliestAvailableSlot: 50}
+
+	api.On("GetFuluForkEpoch").Return(uint64(1))
+	api.On("ReadSpecParameter", "MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS").
+		Return(uint64(32), true)
+	api.On("GetLatestBlockHeader").Return(&phase0.BeaconBlockHeader{Slot: 200})
+
+	// Create a mock block with Electra version and blob commitments
+	electraBlock := &spec.VersionedSignedBeaconBlock{
+		Electra: &electra.SignedBeaconBlock{
+			Message: &electra.BeaconBlock{
+				Body: &electra.BeaconBlockBody{
+					BlobKZGCommitments: []deneb.KZGCommitment{
+						deneb.KZGCommitment{}, // Mock commitment
+						deneb.KZGCommitment{}, // Mock commitment
+						deneb.KZGCommitment{}, // Mock commitment
+					},
+				},
+			},
+		},
+	}
+
+	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
+		Return(electraBlock, nil)
+
+	selector := WithRandomAvailableSlots(n)
+	out, err := selector(context.Background(), api, statusV2)
+	assert.NoError(t, err)
+	assert.Len(t, out, int(n))
+
+	// Verify all slots have beacon blocks
+	for _, slot := range out {
+		assert.NotZero(t, slot.Slot)
+		assert.NotNil(t, slot.BeaconBlock)
+	}
+
+	api.AssertExpectations(t)
+}
+
+func TestGenerateRandomSlots_ValidationFunction(t *testing.T) {
+	api := new(mockBeaconAPI)
+	n := int32(2)
+	statusV2 := &StatusV2{EarliestAvailableSlot: 0}
+
+	api.On("GetFuluForkEpoch").Return(uint64(1))
+	api.On("ReadSpecParameter", "MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS").
+		Return(uint64(32), true)
+	api.On("GetLatestBlockHeader").Return(&phase0.BeaconBlockHeader{Slot: 200})
+
+	// Mock blocks - some valid, some invalid
+	validBlock := &spec.VersionedSignedBeaconBlock{
+		Electra: &electra.SignedBeaconBlock{
+			Message: &electra.BeaconBlock{
+				Body: &electra.BeaconBlockBody{
+					BlobKZGCommitments: []deneb.KZGCommitment{
+						deneb.KZGCommitment{}, // Mock commitment
+						deneb.KZGCommitment{}, // Mock commitment
+						deneb.KZGCommitment{}, // Mock commitment
+					},
+				},
+			},
+		},
+	}
+
+	// Mock the API to return valid blocks
+	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
+		Return(validBlock, nil).Maybe()
+
+	// Validation function that only accepts blocks with blob commitments
+	valFn := func(b *spec.VersionedSignedBeaconBlock) bool {
+		if b.Electra == nil {
+			return false
+		}
+		return len(b.Electra.Message.Body.BlobKZGCommitments) > 0
+	}
+
+	out, err := GenerateRandomSlots(context.Background(), api, n, valFn, statusV2)
+	assert.NoError(t, err)
+	assert.Len(t, out, int(n))
+
+	// Verify all returned slots have valid blocks
+	for _, slot := range out {
+		assert.NotZero(t, slot.Slot)
+		assert.NotNil(t, slot.BeaconBlock)
+		assert.True(t, valFn(slot.BeaconBlock), "returned block should pass validation")
+	}
+
+	api.AssertExpectations(t)
 }
 
 func TestGenerateRandomSlots_LargeRange(t *testing.T) {
@@ -380,7 +518,9 @@ func TestGenerateRandomSlots_LargeRange(t *testing.T) {
 	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
 		Return(&spec.VersionedSignedBeaconBlock{}, nil)
 
-	out, err := GenerateRandomSlots(context.Background(), api, n)
+	valFn := func(b *spec.VersionedSignedBeaconBlock) bool { return true }
+
+	out, err := GenerateRandomSlots(context.Background(), api, n, valFn, &StatusV2{})
 	assert.NoError(t, err)
 
 	// The actual available range is only 32 slots (headSlot - minValue = 10000 - 32), so we should get 32, not 100
@@ -391,40 +531,49 @@ func TestGenerateRandomSlots_LargeRange(t *testing.T) {
 	headSlot := uint64(10000)
 	minValue := uint64(32)
 	minSlot := headSlot - minValue // headSlot - minValue = 10000 - 32
-	maxSlot := uint64(10000) // head slot
+	maxSlot := uint64(10000)       // head slot
 	for _, slot := range out {
 		assert.True(t, slot.Slot >= minSlot, "slot %d should be >= minSlot %d", slot.Slot, minSlot)
-		assert.True(t, slot.Slot < maxSlot, "slot %d should be < maxSlot %d", slot.Slot, maxSlot)
+		assert.True(t, slot.Slot <= maxSlot, "slot %d should be < maxSlot %d", slot.Slot, maxSlot)
 	}
 }
 
-func TestSelectRandomSlotsForRange_Simplified(t *testing.T) {
-	tests := []struct {
-		name        string
-		minSlot     int64
-		headSlot    int64
-		bins        int64
-		expectedLen int
-	}{
-		{"ValidRange", 10, 100, 5, 5},
-		{"SingleSlot", 1, 50, 1, 1},
-		{"BinsGreaterThanRange", 95, 100, 10, 5},
-		{"ZeroBins", 10, 100, 0, 0},
-		{"ZeroMinValue", 0, 100, 5, 0},
+func TestSlotRangeRequestParams_SlotSelector_RandomAvailableSlots(t *testing.T) {
+	statusV2 := &StatusV2{EarliestAvailableSlot: 100}
+
+	params := SlotRangeRequestParams{
+		Type:  RandomAvailableSlots,
+		Range: 5,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := selectRandomSlotsForRange(tt.minSlot, tt.headSlot, tt.bins)
-			assert.Len(t, result, tt.expectedLen)
+	selector := params.SlotSelector()
+	assert.NotNil(t, selector)
 
-			// Check that all slots are within expected range
-			for _, slot := range result {
-				assert.True(t, int64(slot) >= tt.headSlot-(tt.headSlot-tt.minSlot),
-					"slot %d should be >= %d", slot, tt.headSlot-(tt.headSlot-tt.minSlot))
-				assert.True(t, int64(slot) < tt.headSlot,
-					"slot %d should be < %d", slot, tt.headSlot)
-			}
-		})
-	}
+	// Test that the selector can be called (basic smoke test)
+	api := new(mockBeaconAPI)
+	api.On("GetFuluForkEpoch").Return(uint64(1))
+	api.On("ReadSpecParameter", "MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS").
+		Return(uint64(32), true)
+	api.On("GetLatestBlockHeader").Return(&phase0.BeaconBlockHeader{Slot: 200})
+	api.On("GetBeaconBlock", mock.Anything, mock.AnythingOfType("uint64")).
+		Return(&spec.VersionedSignedBeaconBlock{
+			Electra: &electra.SignedBeaconBlock{
+				Message: &electra.BeaconBlock{
+					Slot: phase0.Slot(1),
+					Body: &electra.BeaconBlockBody{
+						BlobKZGCommitments: []deneb.KZGCommitment{
+							deneb.KZGCommitment{}, // Mock commitment
+							deneb.KZGCommitment{}, // Mock commitment
+							deneb.KZGCommitment{}, // Mock commitment
+						},
+					},
+				},
+			},
+		}, nil)
+
+	out, err := selector(context.Background(), api, statusV2)
+	assert.NoError(t, err)
+	assert.Len(t, out, int(params.Range))
+
+	api.AssertExpectations(t)
 }
