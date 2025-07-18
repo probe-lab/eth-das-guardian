@@ -47,7 +47,7 @@ func TestSlotRangeRequestParams_Validate(t *testing.T) {
 	}{
 		{SlotRangeRequestParams{Type: NoSlots}, false, ""},
 		{SlotRangeRequestParams{Type: CustomSlots, Slots: []uint64{1, 2}}, false, ""},
-		{SlotRangeRequestParams{Type: CustomSlots, Slots: []uint64{}}, true, "no slots where given"},
+		{SlotRangeRequestParams{Type: CustomSlots, Slots: []uint64{}}, true, "no slots were given"},
 		{SlotRangeRequestParams{Type: RandomSlots, Range: 5}, false, ""},
 		{SlotRangeRequestParams{Type: RandomSlots, Range: 0}, true, "no slot-range was given (0)"},
 		{SlotRangeRequestParams{Type: RandomNonMissedSlots, Range: 3}, false, ""},
@@ -383,12 +383,14 @@ func TestGenerateRandomSlots_LargeRange(t *testing.T) {
 	out, err := GenerateRandomSlots(context.Background(), api, n)
 	assert.NoError(t, err)
 
-	// The actual available range is only 32 slots (10000 - 9968), so we should get 32, not 100
+	// The actual available range is only 32 slots (headSlot - minValue = 10000 - 32), so we should get 32, not 100
 	expectedLen := 32 // This is the actual available range size
 	assert.Len(t, out, expectedLen)
 
 	// Verify slots are within the expected range
-	minSlot := uint64(9968)  // headSlot - minValue = 10000 - 32
+	headSlot := uint64(10000)
+	minValue := uint64(32)
+	minSlot := headSlot - minValue // headSlot - minValue = 10000 - 32
 	maxSlot := uint64(10000) // head slot
 	for _, slot := range out {
 		assert.True(t, slot.Slot >= minSlot, "slot %d should be >= minSlot %d", slot.Slot, minSlot)

@@ -55,7 +55,7 @@ func (p SlotRangeRequestParams) Validate() error {
 
 	case CustomSlots:
 		if len(p.Slots) <= 0 {
-			return fmt.Errorf("no slots where given")
+			return fmt.Errorf("no slots were given")
 		}
 
 	case RandomSlots, RandomNonMissedSlots, RandomWithBlobsSlots:
@@ -88,8 +88,8 @@ func (p SlotRangeRequestParams) SlotSelector() SlotSelector {
 	}
 }
 
-// SlotSelector is tha main option interface to define which kind of slots we want to select
-// NOTE: all the slots need to be over the fulu fork, otherwise we can't request DataColums
+// SlotSelector is the main option interface to define which kind of slots we want to select
+// NOTE: all the slots need to be over the fulu fork, otherwise we can't request DataColumns
 type SlotSelector func(context.Context, BeaconAPI) ([]SampleableSlot, error)
 
 type SampleableSlot struct {

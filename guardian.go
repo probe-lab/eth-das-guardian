@@ -480,6 +480,7 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSele
 
 	slots, err := slotSelector(ctx, g.beaconApi)
 	if err != nil {
+		return scanResult, errors.Wrap(err, "failed to select slots")
 	}
 
 	// perform DAS

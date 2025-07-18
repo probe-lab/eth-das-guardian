@@ -48,7 +48,7 @@ var scanFlags = []cli.Flag{
 	},
 	&cli.StringFlag{
 		Name:        "slot.range.type",
-		Usage:       "Type of slots that will be queries from the remote node",
+		Usage:       "Type of slots that will be queried from the remote node",
 		DefaultText: fmt.Sprintf("[%s, %s, %s]", dasguardian.NoSlots, dasguardian.RandomSlots, dasguardian.CustomSlots),
 		Value:       scanConfig.SlotRangeType,
 		Destination: &scanConfig.SlotRangeType,
@@ -61,7 +61,7 @@ var scanFlags = []cli.Flag{
 	},
 	&cli.Uint64SliceFlag{
 		Name:        "slot.range.slots",
-		Usage:       "Number of concurrent scans that we would like to perform",
+		Usage:       "Custom slot numbers to be queried from the remote node",
 		Value:       scanConfig.SlotCustomRange,
 		Destination: &scanConfig.SlotCustomRange,
 	},
