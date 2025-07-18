@@ -3,7 +3,6 @@ package dasguardian
 import (
 	"fmt"
 
-	"github.com/attestantio/go-eth2-client/spec"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,11 +20,13 @@ type DASEvaluationResult struct {
 func evaluateColumnResponses(
 	logger log.FieldLogger,
 	nodeID string,
-	slots []uint64,
+	sampleableSlots []SampleableSlot,
 	columnIdxs []uint64,
-	bBlocks []*spec.VersionedSignedBeaconBlock,
 	cols [][]*DataColumnSidecarV1,
 ) (DASEvaluationResult, error) {
+	slots := SlotsFromSampleableSlots(sampleableSlots)
+	bBlocks := BlocksFromSampleableSlots(sampleableSlots)
+
 	dasEvalRes := DASEvaluationResult{
 		NodeID:           nodeID,
 		Slots:            slots,
@@ -119,6 +120,9 @@ func matchingBytes(org, to []byte) (equal bool) {
 }
 
 func (res *DASEvaluationResult) LogVisualization(logger log.FieldLogger) error {
+	if res.Slots == nil {
+		return nil
+	}
 	logger.Info("DAS evaluation for", res.NodeID)
 	// we assume that both, the cols and the blocks are sorted
 	for s, slot := range res.Slots {
