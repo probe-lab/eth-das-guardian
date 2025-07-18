@@ -922,14 +922,14 @@ func (g *DasGuardian) composeLocalBeaconStatus() (*StatusV1, *StatusV2, error) {
 func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 	metadataV2 := &MetaDataV2{
 		SeqNumber: 0,
-		Attnets:   [8]byte(g.nodeIdentity.Attnets()),
-		Syncnets:  [1]byte(g.nodeIdentity.Syncnets()),
+		Attnets:   [8]byte{},
+		Syncnets:  [1]byte{},
 	}
 	metadataV3 := &MetaDataV3{
 		SeqNumber:         0,
-		Attnets:           [8]byte(g.nodeIdentity.Attnets()),
-		Syncnets:          [1]byte(g.nodeIdentity.Syncnets()),
-		CustodyGroupCount: uint64(128),
+		Attnets:           [8]byte{},
+		Syncnets:          [1]byte{},
+		CustodyGroupCount: uint64(0),
 	}
 	return metadataV2, metadataV3
 }
