@@ -929,7 +929,7 @@ func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 		SeqNumber:         0,
 		Attnets:           [8]byte{},
 		Syncnets:          [1]byte{},
-		CustodyGroupCount: uint64(0),
+		CustodyGroupCount: uint64(4),
 	}
 	return metadataV2, metadataV3
 }
