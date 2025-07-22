@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/pkg/errors"
@@ -36,9 +35,6 @@ import (
 
 const (
 	Libp2pConnGraceTime = 30 * time.Second
-
-	Samples      = uint64(4)         // TODO: hardcoded
-	CustodySlots = uint64(4096 * 32) // default custody in the fulu specs
 )
 
 const (
@@ -68,15 +64,16 @@ const (
 )
 
 type DasGuardianConfig struct {
-	Logger            log.FieldLogger
-	Libp2pHost        string
-	Libp2pPort        int
-	ConnectionRetries int
-	ConnectionTimeout time.Duration
-	BeaconAPI         BeaconAPI
-	BeaconAPIendpoint string
-	WaitForFulu       bool
-	InitTimeout       time.Duration
+	Logger                  log.FieldLogger
+	Libp2pHost              string
+	Libp2pPort              int
+	ConnectionRetries       int
+	ConnectionTimeout       time.Duration
+	BeaconAPI               BeaconAPI
+	BeaconAPIendpoint       string
+	BeaconAPIcustomClClient string
+	WaitForFulu             bool
+	InitTimeout             time.Duration
 }
 
 func (c *DasGuardianConfig) NewPrivateKey() (*crypto.Secp256k1PrivateKey, error) {
@@ -196,9 +193,10 @@ func NewDASGuardian(ctx context.Context, cfg *DasGuardianConfig) (*DasGuardian, 
 		beaconApi = cfg.BeaconAPI
 	case cfg.BeaconAPIendpoint != "":
 		beaconApi, err = NewBeaconAPI(BeaconAPIConfig{
-			Logger:      cfg.Logger,
-			Endpoint:    cfg.BeaconAPIendpoint,
-			WaitForFulu: cfg.WaitForFulu,
+			Logger:         cfg.Logger,
+			Endpoint:       cfg.BeaconAPIendpoint,
+			WaitForFulu:    cfg.WaitForFulu,
+			CustomClClient: cfg.BeaconAPIcustomClClient,
 		})
 		if err != nil {
 			return nil, err
@@ -304,11 +302,11 @@ type DasGuardianScanResult struct {
 	EvalResult       DASEvaluationResult
 }
 
-func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node) (*DasGuardianScanResult, error) {
-	return g.scan(ctx, ethNode)
+func (g *DasGuardian) Scan(ctx context.Context, ethNode *enode.Node, slotSelect SlotSelector) (*DasGuardianScanResult, error) {
+	return g.scan(ctx, ethNode, slotSelect)
 }
 
-func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNodes []*enode.Node) ([]*DasGuardianScanResult, error) {
+func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNodes []*enode.Node, slotSelector SlotSelector) ([]*DasGuardianScanResult, error) {
 	dasResults := make([]*DasGuardianScanResult, 0, len(ethNodes))
 	scanC := make(chan *enode.Node, concurrency)
 	resultC := make(chan *DasGuardianScanResult)
@@ -326,7 +324,7 @@ func (g *DasGuardian) ScanMultiple(ctx context.Context, concurrency int32, ethNo
 			return
 
 		case ethNode := <-scanC:
-			res, err := g.scan(ctx, ethNode)
+			res, err := g.scan(ctx, ethNode, slotSelector)
 			if err != nil {
 				g.cfg.Logger.WithField("node_id", ethNode.ID().String()).Error("")
 			}
@@ -377,7 +375,7 @@ type PeerInfo struct {
 	Libp2pInfo Libp2pInfo
 }
 
-func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node) (*DasGuardianScanResult, error) {
+func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node, slotSelector SlotSelector) (*DasGuardianScanResult, error) {
 	// get the info from the ENR
 	addrinfo, err := ParseMaddrFromEnode(enode)
 	if err != nil {
@@ -391,15 +389,15 @@ func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node) (*DasGuardian
 
 	switch g.beaconApi.GetStateVersion() {
 	case "electra":
-		return g.scanElectra(ctx, peerInfo)
+		return g.scanElectra(ctx, peerInfo, slotSelector)
 	case "fulu":
-		return g.scanFulu(ctx, peerInfo)
+		return g.scanFulu(ctx, peerInfo, slotSelector)
 	default:
 		return nil, fmt.Errorf("not recognized fork for the state %s", g.beaconApi.GetStateVersion())
 	}
 }
 
-func (g *DasGuardian) scanElectra(ctx context.Context, peer *PeerInfo) (*DasGuardianScanResult, error) {
+func (g *DasGuardian) scanElectra(ctx context.Context, peer *PeerInfo, slotSelector SlotSelector) (*DasGuardianScanResult, error) {
 	scanResult := &DasGuardianScanResult{
 		Libp2pInfo: peer.Libp2pInfo,
 	}
@@ -431,7 +429,7 @@ func (g *DasGuardian) scanElectra(ctx context.Context, peer *PeerInfo) (*DasGuar
 	return scanResult, nil
 }
 
-func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo) (*DasGuardianScanResult, error) {
+func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSelector SlotSelector) (*DasGuardianScanResult, error) {
 	scanResult := &DasGuardianScanResult{
 		Libp2pInfo: peerInfo.Libp2pInfo,
 	}
@@ -480,44 +478,30 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo) (*DasGua
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
 
-	// select the random slots to sample
-	// limit to only Fulu supported
-	custSlots := int64(CustodySlots)
-	fuluForkEpoch := g.beaconApi.GetFuluForkEpoch()
-	if (int64(remoteStatus.HeadSlot) - int64(CustodySlots)) <= int64((fuluForkEpoch * 32)) {
-		custSlots = int64(remoteStatus.HeadSlot) - int64(fuluForkEpoch*32)
-	}
-	randomSlots := selectRandomSlotsForRange(
-		int64(remoteStatus.HeadSlot),
-		int64(Samples),
-		custSlots,
-	)
-	randomSlotsLogs := visualizeRandomSlots(randomSlots)
-	prettyLogrusFields(g.cfg.Logger, "to request slot->blobs ...", randomSlotsLogs)
-
-	// get the blocks so that we can compare the obtained results with the chain ones
-	bBlocks, err := g.fetchSlotBlocks(ctx, randomSlots)
+	slots, err := slotSelector(ctx, g.beaconApi, remoteStatus)
 	if err != nil {
-		return scanResult, err
+		return scanResult, errors.Wrap(err, "failed to select slots")
 	}
 
-	// DAS??!?
-	dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, peerInfo.AddrInfo.ID, randomSlots, metadataCustodyIdxs[:])
-	if err != nil {
-		return scanResult, err
+	// perform DAS
+	if len(slots) > 0 {
+		visualizeRandomSlots(slots)
+		dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, peerInfo.AddrInfo.ID, slots, metadataCustodyIdxs[:])
+		if err != nil {
+			return scanResult, err
+		}
+		// evaluate and return the results
+		evalResult, err := evaluateColumnResponses(g.cfg.Logger, peerInfo.Enode.ID().String(), slots, metadataCustodyIdxs, dataCols)
+		if err != nil {
+			return scanResult, err
+		}
+		scanResult.EvalResult = evalResult
 	}
 
-	// evaluate and return the results
-	evalResult, err := evaluateColumnResponses(g.cfg.Logger, peerInfo.Enode.ID().String(), randomSlots, metadataCustodyIdxs, bBlocks, dataCols)
-	if err != nil {
-		return scanResult, err
-	}
-
-	scanResult.EvalResult = evalResult
 	return scanResult, nil
 }
 
-func (g *DasGuardian) MonitorEndpoint(ctx context.Context) error {
+func (g *DasGuardian) MonitorEndpoint(ctx context.Context, slotSelector SlotSelector) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -525,16 +509,15 @@ func (g *DasGuardian) MonitorEndpoint(ctx context.Context) error {
 
 		case <-time.After(12 * time.Second):
 			g.cfg.Logger.Info("monitoring node...")
-			err := g.monitorEndpoint(ctx)
+			err := g.monitorEndpoint(ctx, slotSelector)
 			if err != nil {
 				return err
 			}
 		}
-
 	}
 }
 
-func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
+func (g *DasGuardian) monitorEndpoint(ctx context.Context, slotSelector SlotSelector) error {
 	// extract the peering details from the ENR
 	enr, err := ParseNode(g.nodeIdentity.Data.Enr)
 	if err != nil {
@@ -598,7 +581,7 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context) error {
 
 	// make the scan, and the the results
 	invalidSlots := make([]uint64, 0)
-	res, err := g.scan(ctx, enr)
+	res, err := g.scan(ctx, enr, slotSelector)
 	if err != nil {
 		return err
 	}
@@ -939,32 +922,32 @@ func (g *DasGuardian) composeLocalBeaconStatus() (*StatusV1, *StatusV2, error) {
 func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 	metadataV2 := &MetaDataV2{
 		SeqNumber: 0,
-		Attnets:   [8]byte(g.nodeIdentity.Attnets()),
-		Syncnets:  [1]byte(g.nodeIdentity.Syncnets()),
+		Attnets:   [8]byte{},
+		Syncnets:  [1]byte{},
 	}
 	metadataV3 := &MetaDataV3{
 		SeqNumber:         0,
-		Attnets:           [8]byte(g.nodeIdentity.Attnets()),
-		Syncnets:          [1]byte(g.nodeIdentity.Syncnets()),
-		CustodyGroupCount: uint64(128),
+		Attnets:           [8]byte{},
+		Syncnets:          [1]byte{},
+		CustodyGroupCount: uint64(4),
 	}
 	return metadataV2, metadataV3
 }
 
-func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, slots []uint64, columnIdxs []uint64) ([][]*DataColumnSidecarV1, error) {
+func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, sampSlot []SampleableSlot, columnIdxs []uint64) ([][]*DataColumnSidecarV1, error) {
 	g.cfg.Logger.WithFields(log.Fields{
-		"slots":   len(slots),
+		"slots":   len(sampSlot),
 		"columns": len(columnIdxs),
 	}).Info("sampling node for...")
 
 	// TODO: make sure that we limit the number of columns that we request (slots * idxs * columns)
-	dataColumns := make([][]*DataColumnSidecarV1, len(slots))
+	dataColumns := make([][]*DataColumnSidecarV1, len(sampSlot))
 
 	startT := time.Now()
 	// make the request for each slots
-	for s, slot := range slots {
+	for s, completeSlot := range sampSlot {
 		// make the request per each column
-		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, slot, columnIdxs)
+		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, completeSlot.Slot, columnIdxs)
 		if err != nil {
 			g.cfg.Logger.Error(err)
 			return dataColumns, err
@@ -974,7 +957,7 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 		// compose the results
 		g.cfg.Logger.WithFields(log.Fields{
 			"req-duration": duration,
-			"slot":         slot,
+			"slot":         completeSlot.Slot,
 			"das-result":   fmt.Sprintf("%d/%d columns", len(cols), len(columnIdxs)),
 		}).Info("req info...")
 	}
@@ -984,19 +967,4 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid pee
 		"duration": opDur,
 	}).Info("node custody sampling done...")
 	return dataColumns, nil
-}
-
-func (g *DasGuardian) fetchSlotBlocks(ctx context.Context, slots []uint64) ([]*spec.VersionedSignedBeaconBlock, error) {
-	g.cfg.Logger.WithFields(log.Fields{
-		"slots": slots,
-	}).Info("requesting slot-blocks from beacon API...")
-	blocks := make([]*spec.VersionedSignedBeaconBlock, len(slots))
-	for i, slot := range slots {
-		b, err := g.beaconApi.GetBeaconBlock(ctx, slot)
-		if err != nil {
-			return blocks, err
-		}
-		blocks[i] = b
-	}
-	return blocks, nil
 }

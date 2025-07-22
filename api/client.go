@@ -14,16 +14,18 @@ import (
 )
 
 type ClientConfig struct {
-	Endpoint     string
-	StateTimeout time.Duration
-	QueryTimeout time.Duration
-	Logger       log.FieldLogger
+	Endpoint       string
+	StateTimeout   time.Duration
+	QueryTimeout   time.Duration
+	CustomClClient string
+	Logger         log.FieldLogger
 }
 
 type Client struct {
-	cfg    ClientConfig
-	base   *url.URL
-	client *http.Client
+	cfg            ClientConfig
+	base           *url.URL
+	client         *http.Client
+	customClClient string
 }
 
 func NewClient(cfg ClientConfig) (*Client, error) {
@@ -44,9 +46,10 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}
 
 	cli := &Client{
-		cfg:    cfg,
-		base:   urlBase,
-		client: httpCli,
+		cfg:            cfg,
+		base:           urlBase,
+		client:         httpCli,
+		customClClient: cfg.CustomClClient,
 	}
 
 	return cli, nil
@@ -85,6 +88,10 @@ func (c *Client) get(
 
 	// we will only handle JSONs
 	req.Header.Set("Accept", "application/json")
+	// select an specific cl client from the work-balancer if defined
+	if c.customClClient != "" {
+		req.Header.Set("X-Dugtrio-Next-Endpoint", c.customClClient)
+	}
 
 	l := c.cfg.Logger.WithFields(log.Fields{
 		"url":    callURL,
@@ -92,7 +99,6 @@ func (c *Client) get(
 	})
 	l.Info("requesting beacon API")
 	resp, err := c.client.Do(req)
-
 	if err != nil {
 		l.WithError(err).Warn("error requesting beacon API")
 		return respBody, errors.Wrap(err, fmt.Sprintf("unable to request URL %s", callURL.String()))
@@ -103,6 +109,20 @@ func (c *Client) get(
 		return respBody, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		l.WithFields(log.Fields{
+			"status_code": resp.StatusCode,
+			"status":      resp.Status,
+		}).Warn("beacon API returned non-success status code")
+
+		// Read the error response body for better error messages
+		errorBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return respBody, fmt.Errorf("unable to read api-response %s", err.Error())
+		}
+		return respBody, fmt.Errorf("beacon API request failed %s - %s", resp.Status, string(errorBody))
+	}
 
 	respBody, err = io.ReadAll(resp.Body)
 	if err != nil {
