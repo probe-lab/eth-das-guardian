@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/event"
@@ -136,7 +137,9 @@ type DasGuardian struct {
 	cfg *DasGuardianConfig
 
 	// services
-	host      host.Host
+	host       host.Host
+	isHostInit atomic.Bool
+
 	beaconApi BeaconAPI
 	pubsub    *pubsub.PubSub
 	rpcServ   *ReqResp
@@ -289,8 +292,23 @@ func (g *DasGuardian) init(ctx context.Context) error {
 		return err
 	}
 	g.rpcServ = reqResp
-
+	// if everythiong went well, say that the host is ready
+	g.isHostInit.Store(true)
 	return nil
+}
+
+func (g *DasGuardian) Close() error {
+	if !g.isHostInit.Load() {
+		return nil
+	}
+	log.Info("terminating libp2p host...")
+	g.isHostInit.Store(false)
+	return g.host.Close()
+}
+
+func (g *DasGuardian) disconnectPeer(pid peer.ID) error {
+	log.Infof("disconnecting %s", pid.String())
+	return g.host.Network().ClosePeer(pid)
 }
 
 type DasGuardianScanResult struct {
@@ -376,6 +394,11 @@ type PeerInfo struct {
 }
 
 func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node, slotSelector SlotSelector) (*DasGuardianScanResult, error) {
+	// ensure that the host is not closed
+	if !g.isHostInit.Load() {
+		return nil, fmt.Errorf("unable to perform the scan, the host was terminated")
+	}
+
 	// get the info from the ENR
 	addrinfo, err := ParseMaddrFromEnode(enode)
 	if err != nil {
@@ -397,35 +420,38 @@ func (g *DasGuardian) scan(ctx context.Context, enode *enode.Node, slotSelector 
 	}
 }
 
-func (g *DasGuardian) scanElectra(ctx context.Context, peer *PeerInfo, slotSelector SlotSelector) (*DasGuardianScanResult, error) {
+func (g *DasGuardian) scanElectra(ctx context.Context, peerInfo *PeerInfo, slotSelector SlotSelector) (*DasGuardianScanResult, error) {
 	scanResult := &DasGuardianScanResult{
-		Libp2pInfo: peer.Libp2pInfo,
+		Libp2pInfo: peerInfo.Libp2pInfo,
 	}
 
 	// exchange beacon-status
-	remoteStatus := g.requestBeaconStatusV1(ctx, peer.AddrInfo.ID)
+	remoteStatus := g.requestBeaconStatusV1(ctx, peerInfo.AddrInfo.ID)
 	if remoteStatus == nil {
-		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", peer.Enode.ID())
+		return scanResult, fmt.Errorf("failed to get beacon status from peer %s", peerInfo.Enode.ID())
 	}
 	scanResult.RemoteStatusV1 = remoteStatus
 	statusLogs := g.visualizeBeaconStatusV1(remoteStatus)
 
 	// exchange beacon-metadata
-	remoteMetadata := g.requestBeaconMetadataV2(ctx, peer.AddrInfo.ID)
+	remoteMetadata := g.requestBeaconMetadataV2(ctx, peerInfo.AddrInfo.ID)
 	if remoteMetadata == nil {
-		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", peer.Enode.ID())
+		return scanResult, fmt.Errorf("failed to get beacon metadata from peer %s", peerInfo.Enode.ID())
 	}
 
 	scanResult.RemoteMetadataV2 = remoteMetadata
 	metadataLogs := g.visualizeBeaconMetadataV2(remoteMetadata)
 
 	prettyLogrusFields(g.cfg.Logger, "scanning eth-node...", map[string]any{
-		"peer-id": peer.AddrInfo.ID.String(),
-		"maddr":   peer.AddrInfo.Addrs,
+		"peer-id": peerInfo.AddrInfo.ID.String(),
+		"maddr":   peerInfo.AddrInfo.Addrs,
 	})
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
 
+	if err := g.disconnectPeer(peerInfo.AddrInfo.ID); err != nil {
+		log.Errorf("unable to disconnect from remote peer %s - %s", peerInfo.AddrInfo.ID.String(), err.Error())
+	}
 	return scanResult, nil
 }
 
@@ -498,6 +524,10 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSele
 		scanResult.EvalResult = evalResult
 	}
 
+	if err := g.disconnectPeer(peerInfo.AddrInfo.ID); err != nil {
+		log.Errorf("unable to disconnect from remote peer %s - %s", peerInfo.AddrInfo.ID.String(), err.Error())
+	}
+
 	return scanResult, nil
 }
 
@@ -508,6 +538,10 @@ func (g *DasGuardian) MonitorEndpoint(ctx context.Context, slotSelector SlotSele
 			return nil
 
 		case <-time.After(12 * time.Second):
+			if !g.isHostInit.Load() {
+				log.Debug("libp2p host was closed")
+				return nil
+			}
 			g.cfg.Logger.Info("monitoring node...")
 			err := g.monitorEndpoint(ctx, slotSelector)
 			if err != nil {

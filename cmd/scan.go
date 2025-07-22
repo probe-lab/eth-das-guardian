@@ -99,6 +99,12 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		err := guardian.Close()
+		if err != nil {
+			log.Errorf("closing the libp2p host - %s", err.Error())
+		}
+	}()
 
 	// slot range params
 	params := dasguardian.SlotRangeRequestParams{
