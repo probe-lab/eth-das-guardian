@@ -42,7 +42,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 
 	urlBase, err := url.Parse(cfg.Endpoint)
 	if err != nil {
-		return nil, errors.Wrap(err, "composing Avail API's base URL")
+		return nil, errors.Wrap(err, "composing API's base URL")
 	}
 
 	cli := &Client{
