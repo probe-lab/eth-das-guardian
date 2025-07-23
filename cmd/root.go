@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v3"
 )
 
 var rootConfig = struct {
+	LogLevel                string
 	Libp2pHost              string
 	Libp2pPort              int
 	BeaconAPIendpoint       string
@@ -20,6 +22,7 @@ var rootConfig = struct {
 	InitTimeout             time.Duration
 	WaitForFulu             bool
 }{
+	LogLevel:                "info",
 	Libp2pHost:              "127.0.0.1",
 	Libp2pPort:              9013,
 	BeaconAPIendpoint:       "http://127.0.0.1:5052/",
@@ -38,10 +41,17 @@ var rootCmd = &cli.Command{
 	Commands: []*cli.Command{
 		cmdScan,
 		cmdMonitor,
+		cmdPlaytime,
 	},
 }
 
 var rootFlags = []cli.Flag{
+	&cli.StringFlag{
+		Name:        "log.level",
+		Usage:       "Level of the logs",
+		Value:       rootConfig.LogLevel,
+		Destination: &rootConfig.LogLevel,
+	},
 	&cli.StringFlag{
 		Name:        "libp2p.host",
 		Usage:       "IP for the Libp2p host",
@@ -108,4 +118,21 @@ func main() {
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+func ParseLogLevel(level string) logrus.Level {
+	switch level {
+	case "trace":
+		return logrus.TraceLevel
+	case "debug":
+		return logrus.DebugLevel
+	case "info":
+		return logrus.InfoLevel
+	case "warn":
+		return logrus.WarnLevel
+	case "error":
+		return logrus.ErrorLevel
+	default:
+		return logrus.InfoLevel
+	}
 }

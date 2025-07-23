@@ -15,7 +15,6 @@ import (
 
 type ClientConfig struct {
 	Endpoint     string
-	StateTimeout time.Duration
 	QueryTimeout time.Duration
 	Logger       log.FieldLogger
 }

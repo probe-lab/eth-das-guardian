@@ -47,7 +47,6 @@ func genTestAPICli(t *testing.T) (*Client, context.Context, context.CancelFunc) 
 
 	cfg := ClientConfig{
 		Endpoint:     DoraTestAPIEndpoint,
-		StateTimeout: StateTimeout,
 		QueryTimeout: QueryTimeout,
 		Logger:       log.WithFields(log.Fields{}),
 	}
