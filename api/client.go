@@ -18,7 +18,7 @@ type ClientConfig struct {
 	StateTimeout   time.Duration
 	QueryTimeout   time.Duration
 	CustomClClient string
-	Logger         log.FieldLogger
+	Logger         *log.Logger
 }
 
 type Client struct {
@@ -61,7 +61,7 @@ func (c *Client) CheckConnection(ctx context.Context) error {
 		return errors.Wrap(err, "testing connectivity")
 	}
 
-	log.WithFields(log.Fields{
+	c.cfg.Logger.WithFields(log.Fields{
 		"node-version": version.Data.Version,
 	}).Info("successfull connection to the beacon-api")
 

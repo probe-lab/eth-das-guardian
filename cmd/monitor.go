@@ -73,7 +73,7 @@ func monitorAction(ctx context.Context, cmd *cli.Command) error {
 		"slot-range-slots":   scanConfig.SlotCustomRange,
 	}).Info("running das-guardian")
 
-	logger := log.WithFields(log.Fields{})
+	logger := log.New()
 	logger.WithFields(log.Fields{
 		"freq": monitorConfig.MonitorFrequency,
 	}).Info("monitor cmd...")

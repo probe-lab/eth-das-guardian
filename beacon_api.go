@@ -36,7 +36,7 @@ type BeaconAPI interface {
 }
 
 type BeaconAPIConfig struct {
-	Logger         log.FieldLogger
+	Logger         *log.Logger
 	Endpoint       string
 	WaitForFulu    bool
 	CustomClClient string

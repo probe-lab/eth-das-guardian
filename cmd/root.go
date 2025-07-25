@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v3"
 )
@@ -118,21 +117,4 @@ func main() {
 		os.Exit(1)
 	}
 	os.Exit(0)
-}
-
-func ParseLogLevel(level string) logrus.Level {
-	switch level {
-	case "trace":
-		return logrus.TraceLevel
-	case "debug":
-		return logrus.DebugLevel
-	case "info":
-		return logrus.InfoLevel
-	case "warn":
-		return logrus.WarnLevel
-	case "error":
-		return logrus.ErrorLevel
-	default:
-		return logrus.InfoLevel
-	}
 }
