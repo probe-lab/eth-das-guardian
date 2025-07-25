@@ -84,7 +84,7 @@ func evaluateColumnResponses(
 		}
 
 		// check if the commitments match
-		for c, _ := range columnIdxs {
+		for c := range columnIdxs {
 			blockKzgCommitments, _ := bBlocks[s].BlobKZGCommitments()
 			if c >= len(cols[s]) {
 				validKzg[c] = fmt.Sprintf("0/%d", len(blockKzgCommitments))

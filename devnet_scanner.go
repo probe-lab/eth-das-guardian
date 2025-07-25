@@ -201,7 +201,7 @@ func (s *DevnetScanner) scanClients(ctx context.Context) ([]ClientResult, error)
 		}()
 	}
 
-	var i = 0
+	i := 0
 orchester:
 	for clName, clientM := range s.ClClients {
 		select {
@@ -228,7 +228,7 @@ func (s *DevnetScanner) configureLoggers(logDir string) error {
 
 func (s *DevnetScanner) newLogger(fPath string) (*logrus.Logger, *os.File, error) {
 	log := logrus.New()
-	f, err := os.OpenFile(s.cfg.LogDir+"/"+fPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0755)
+	f, err := os.OpenFile(s.cfg.LogDir+"/"+fPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o755)
 	if err != nil {
 		return nil, nil, err
 	}
