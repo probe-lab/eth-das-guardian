@@ -6,6 +6,7 @@ import (
 	mrand "math/rand"
 
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/probe-lab/eth-das-guardian/api"
 	"github.com/sirupsen/logrus"
 )
 
@@ -211,7 +212,12 @@ func GenerateRandomSlots(ctx context.Context, beaconApi BeaconAPI, n int32, valF
 
 			bblock, err := beaconApi.GetBeaconBlock(ctx, slot)
 			if err != nil {
-				return nil, fmt.Errorf("retrieving slot %d - %v", slot, err)
+				switch err {
+				case api.ErrBlockNotFound:
+					continue
+				default:
+					return nil, fmt.Errorf("retrieving slot %d - %v", slot, err)
+				}
 			}
 
 			if valFn(bblock) {
@@ -241,7 +247,7 @@ func GenerateRandomSlots(ctx context.Context, beaconApi BeaconAPI, n int32, valF
 	logrus.WithFields(logrus.Fields{
 		"total-requested": len(checkedSlots),
 		"valid-ones":      len(sampSlots),
-	}).Info("generated random slots for sampling")
+	}).Debug("generated random slots for sampling")
 
 	return sampSlots, nil
 }

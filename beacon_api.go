@@ -31,12 +31,12 @@ type BeaconAPI interface {
 	GetLatestBlockHeader() *phase0.BeaconBlockHeader
 	GetFuluForkEpoch() uint64
 	GetNodeIdentity(context.Context) (*api.NodeIdentity, error)
-	GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error)
+	GetBeaconBlock(ctx context.Context, slot any) (*spec.VersionedSignedBeaconBlock, error)
 	ReadSpecParameter(key string) (any, bool)
 }
 
 type BeaconAPIConfig struct {
-	Logger         log.FieldLogger
+	Logger         *log.Logger
 	Endpoint       string
 	WaitForFulu    bool
 	CustomClClient string
@@ -419,7 +419,7 @@ func (b *BeaconAPIImpl) GetNodeIdentity(ctx context.Context) (*api.NodeIdentity,
 	return b.apiClient.GetNodeIdentity(ctx)
 }
 
-func (b *BeaconAPIImpl) GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error) {
+func (b *BeaconAPIImpl) GetBeaconBlock(ctx context.Context, slot any) (*spec.VersionedSignedBeaconBlock, error) {
 	return b.apiClient.GetBeaconBlock(ctx, slot)
 }
 

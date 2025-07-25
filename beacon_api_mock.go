@@ -61,7 +61,7 @@ func (m *mockBeaconAPI) GetNodeIdentity(ctx context.Context) (*api.NodeIdentity,
 	return args.Get(0).(*api.NodeIdentity), args.Error(1)
 }
 
-func (m *mockBeaconAPI) GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error) {
+func (m *mockBeaconAPI) GetBeaconBlock(ctx context.Context, slot any) (*spec.VersionedSignedBeaconBlock, error) {
 	args := m.Called(ctx, slot)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

@@ -1,4 +1,4 @@
-package api
+package dora
 
 import (
 	"context"
@@ -14,18 +14,15 @@ import (
 )
 
 type ClientConfig struct {
-	Endpoint       string
-	StateTimeout   time.Duration
-	QueryTimeout   time.Duration
-	CustomClClient string
-	Logger         *log.Logger
+	Endpoint     string
+	QueryTimeout time.Duration
+	Logger       log.FieldLogger
 }
 
 type Client struct {
-	cfg            ClientConfig
-	base           *url.URL
-	client         *http.Client
-	customClClient string
+	cfg    ClientConfig
+	base   *url.URL
+	client *http.Client
 }
 
 func NewClient(cfg ClientConfig) (*Client, error) {
@@ -42,29 +39,26 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 
 	urlBase, err := url.Parse(cfg.Endpoint)
 	if err != nil {
-		return nil, errors.Wrap(err, "composing API's base URL")
+		return nil, errors.Wrap(err, "compose API's base URL")
 	}
 
 	cli := &Client{
-		cfg:            cfg,
-		base:           urlBase,
-		client:         httpCli,
-		customClClient: cfg.CustomClClient,
+		cfg:    cfg,
+		base:   urlBase,
+		client: httpCli,
 	}
 
 	return cli, nil
 }
 
 func (c *Client) CheckConnection(ctx context.Context) error {
-	version, err := c.GetNodeVersion(ctx)
+	latestEpoch, err := c.GetEpochV1(ctx, "latest")
 	if err != nil {
 		return errors.Wrap(err, "testing connectivity")
 	}
-
-	c.cfg.Logger.WithFields(log.Fields{
-		"node-version": version.Data.Version,
-	}).Info("successfull connection to the beacon-api")
-
+	log.WithFields(log.Fields{
+		"latest-epoch": latestEpoch,
+	}).Info("successfull connection to the dora's api")
 	return nil
 }
 
@@ -84,13 +78,6 @@ func (c *Client) get(
 	req, err := http.NewRequestWithContext(opCtx, http.MethodGet, callURL.String(), nil)
 	if err != nil {
 		return []byte{}, errors.Wrap(err, "unable to compose call URL")
-	}
-
-	// we will only handle JSONs
-	req.Header.Set("Accept", "application/json")
-	// select an specific cl client from the work-balancer if defined
-	if c.customClClient != "" {
-		req.Header.Set("X-Dugtrio-Next-Endpoint", c.customClClient)
 	}
 
 	l := c.cfg.Logger.WithFields(log.Fields{

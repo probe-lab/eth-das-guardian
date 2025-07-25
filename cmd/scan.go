@@ -81,8 +81,7 @@ func scanAction(ctx context.Context, cmd *cli.Command) error {
 		"slot-range-slots":   scanConfig.SlotCustomRange,
 	}).Info("running das-guardian")
 
-	logger := log.WithFields(log.Fields{})
-
+	logger := log.New()
 	ethConfig := &dasguardian.DasGuardianConfig{
 		Logger:                  logger,
 		Libp2pHost:              rootConfig.Libp2pHost,

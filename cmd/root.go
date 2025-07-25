@@ -11,6 +11,7 @@ import (
 )
 
 var rootConfig = struct {
+	LogLevel                string
 	Libp2pHost              string
 	Libp2pPort              int
 	BeaconAPIendpoint       string
@@ -20,6 +21,7 @@ var rootConfig = struct {
 	InitTimeout             time.Duration
 	WaitForFulu             bool
 }{
+	LogLevel:                "info",
 	Libp2pHost:              "127.0.0.1",
 	Libp2pPort:              9013,
 	BeaconAPIendpoint:       "http://127.0.0.1:5052/",
@@ -38,10 +40,17 @@ var rootCmd = &cli.Command{
 	Commands: []*cli.Command{
 		cmdScan,
 		cmdMonitor,
+		cmdPlaytime,
 	},
 }
 
 var rootFlags = []cli.Flag{
+	&cli.StringFlag{
+		Name:        "log.level",
+		Usage:       "Level of the logs",
+		Value:       rootConfig.LogLevel,
+		Destination: &rootConfig.LogLevel,
+	},
 	&cli.StringFlag{
 		Name:        "libp2p.host",
 		Usage:       "IP for the Libp2p host",
