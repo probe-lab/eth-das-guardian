@@ -42,7 +42,7 @@ func (c *Client) GetBeaconBlock(ctx context.Context, slot any) (*spec.VersionedS
 	case int, int32, int64, uint, uint32, uint64:
 		blockQuery = blockQuery + fmt.Sprintf("%d", s)
 	case string:
-		blockQuery = s
+		blockQuery = blockQuery + s
 	default:
 		return nil, fmt.Errorf("unrecognized slot %s", slot)
 	}
