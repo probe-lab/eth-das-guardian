@@ -33,7 +33,7 @@ To function correctly, the tool adheres to the networking requirements outlined 
 - `Go >=1.24`
 - (Recommended) [Just](https://github.com/casey/just)
 - A Beacon API with debugging events enabled (the tool downloads the beacon-state from the node)
-  - Example: use EthPandaOps’ Beacon RPC endpoint listed in the [devnet details](https://peerdas-devnet-7.ethpandaops.io/)
+  - Example: use EthPandaOps’ Beacon RPC endpoint listed in the [devnet details](https://fusaka-devnet-3.ethpandaops.io/)
 
 ## Installation
 
@@ -59,11 +59,13 @@ USAGE:
    das-guardian [global options] [command [command options]]
 
 COMMANDS:
-   scan     Connects and scans a given node for its custody and network status
-   monitor  Connects and monitors a given node for its custody and network status
-   help, h  Shows a list of commands or help for one command
+   scan      Connects and scans a given node for its custody and network status
+   monitor   Connects and monitors a given node for its custody and network status
+   playtime  Run monitor or scan commands on all consensus clients from Dora
+   help, h   Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
+   --log.level string             Level of the logs (default: "info")
    --libp2p.host string           IP for the Libp2p host (default: "127.0.0.1")
    --libp2p.port int              Port for the libp2p host (default: 9013)
    --api.endpoint string          The url endpoint of a Beacon API (http://localhost:5052/) (default: "http://127.0.0.1:5052/")
