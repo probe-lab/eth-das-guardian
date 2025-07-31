@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	DoraTestAPIEndpoint = "https://dora.fusaka-devnet-2.ethpandaops.io/api/"
+	DoraTestAPIEndpoint = "https://dora.fusaka-devnet-3.ethpandaops.io/api/"
 	StateTimeout        = 30 * time.Second
 	QueryTimeout        = 10 * time.Second
 )

@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	devnetBeaconAPI = "https://beacon.fusaka-devnet-2.ethpandaops.io/"
+	devnetBeaconAPI = "https://beacon.fusaka-devnet-3.ethpandaops.io/"
 	StateTimeout    = 30 * time.Second
 	QueryTimeout    = 10 * time.Second
 )

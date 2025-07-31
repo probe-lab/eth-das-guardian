@@ -20,9 +20,9 @@ func displayGrid(results []ClientResult) {
 	fmt.Print("\033[2J\033[H")
 
 	fmt.Println("Consensus Clients Status:", time.Now().Format(time.RFC850))
-	fmt.Println("===============================================")
+	fmt.Println("===========================================================")
 
-	const colWidth = 40
+	const colWidth = 50
 	const cols = 4
 
 	for i := 0; i < len(results); i += cols {
@@ -30,8 +30,8 @@ func displayGrid(results []ClientResult) {
 			client := results[i+j]
 			status := getStatusDisplay(client.Status)
 			clientName := client.ClientName
-			if len(clientName) > 15 {
-				clientName = clientName[:15] + "..."
+			if len(clientName) > 25 {
+				clientName = clientName[:25] + "..."
 			}
 			fmt.Printf(" %-*s", colWidth, fmt.Sprintf("%s %s", status, clientName))
 		}

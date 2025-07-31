@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,10 +28,12 @@ type DevnetScannerConfig struct {
 	LogDir    string
 
 	// variables
-	Parallelism       int32
-	DoraApiEndpoint   string
-	BeaconApiEndpoint string
-	DryScan           bool
+	Parallelism             int32
+	DoraApiEndpoint         string
+	BeaconApiEndpoint       string
+	ScanFreq                time.Duration
+	DryScan                 bool
+	FilterClientsContaining string
 }
 
 type DevnetScanner struct {
@@ -59,23 +62,31 @@ func (s *DevnetScanner) Start(ctx context.Context) error {
 	}
 	defer s.close()
 
-endlessLoop:
+	networkScan := func(scanCtx context.Context) error {
+		results, err := s.scanClients(scanCtx)
+		if err != nil {
+			return err
+		}
+		displayGrid(results)
+		return nil
+	}
+
+	err := networkScan(ctx)
+	if err != nil || s.cfg.DryScan {
+		return err
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		default:
-			results, err := s.scanClients(ctx)
+		case <-time.After(s.cfg.ScanFreq):
+			err := networkScan(ctx)
 			if err != nil {
 				return err
 			}
-			displayGrid(results)
-			if s.cfg.DryScan {
-				break endlessLoop
-			}
 		}
 	}
-	return nil
 }
 
 func (s *DevnetScanner) close() error {
@@ -104,6 +115,16 @@ func (s *DevnetScanner) init(ctx context.Context) error {
 		return errors.Wrap(err, "creating main logger")
 	}
 
+	s.mainLog.WithFields(logrus.Fields{
+		"log-level":   s.cfg.LogLevel.String(),
+		"log-dir":     s.cfg.LogDir,
+		"parellelism": s.cfg.Parallelism,
+		"dora-api":    s.cfg.DoraApiEndpoint,
+		"beacon-api":  s.cfg.BeaconApiEndpoint,
+		"scan-freq":   s.cfg.ScanFreq,
+		"dry-scan":    s.cfg.DryScan,
+	}).Info("starting devnet scanner...")
+
 	// create new API client for Dora
 	s.DoraApi, err = dora.NewClient(dora.ClientConfig{
 		Endpoint:     s.cfg.DoraApiEndpoint,
@@ -122,6 +143,10 @@ func (s *DevnetScanner) init(ctx context.Context) error {
 	if consensusClients.Count == 0 {
 		logrus.Error("No clients found from Dora API")
 		return nil
+	}
+
+	if s.cfg.FilterClientsContaining != "" {
+		consensusClients = filterClClients(consensusClients, s.cfg.FilterClientsContaining)
 	}
 
 	// Initialize client results
@@ -310,4 +335,15 @@ func (m *clientMonitor) scanClient(ctx context.Context, slots int32) ClientResul
 	result.Status = StatusSuccess
 	result.Error = nil
 	return result
+}
+
+func filterClClients(clients *dora.ConsensusClientsResponse, subString string) *dora.ConsensusClientsResponse {
+	filteredClients := new(dora.ConsensusClientsResponse)
+	for _, client := range clients.Clients {
+		if strings.Contains(strings.ToLower(client.ClientName), subString) {
+			filteredClients.Clients = append(filteredClients.Clients, client)
+			filteredClients.Count++
+		}
+	}
+	return filteredClients
 }

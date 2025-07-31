@@ -20,7 +20,7 @@ It can extract and present all available information for a given [ENR](https://g
 This experimental version of the tool is compatible with existing PeerDAS devnets. It has been tested and confirmed to work with `fusaka-devnet-2`.
 
 More details available at:
-- EF's [fusaka-devnet-2 dashboard](https://fusaka-devnet-2.ethpandaops.io/)
+- EF's [fusaka-devnet-3 dashboard](https://fusaka-devnet-3.ethpandaops.io/)
 
 ## PeerDAS Specifications
 

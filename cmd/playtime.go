@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	dasguardian "github.com/probe-lab/eth-das-guardian"
 	"github.com/sirupsen/logrus"
@@ -9,17 +10,21 @@ import (
 )
 
 var playTimeConfig = struct {
-	Parallelism    int32
-	DoraEndpoint   string
-	BeaconEndpoint string
-	LogDir         string
-	DryScan        bool
+	Parallelism             int32
+	DoraEndpoint            string
+	BeaconEndpoint          string
+	LogDir                  string
+	ScanFreq                time.Duration
+	DryScan                 bool
+	FilterClientsContaining string
 }{
-	Parallelism:    4,
-	DoraEndpoint:   "https://dora.fusaka-devnet-2.ethpandaops.io/api/",
-	BeaconEndpoint: "https://beacon.fusaka-devnet-2.ethpandaops.io/",
-	LogDir:         ".logs",
-	DryScan:        true,
+	Parallelism:             4,
+	DoraEndpoint:            "https://dora.fusaka-devnet-3.ethpandaops.io/api/",
+	BeaconEndpoint:          "https://beacon.fusaka-devnet-3.ethpandaops.io/",
+	LogDir:                  ".logs",
+	ScanFreq:                30 * time.Second,
+	DryScan:                 false,
+	FilterClientsContaining: "",
 }
 
 var cmdPlaytime = &cli.Command{
@@ -55,11 +60,23 @@ var cmdPlaytime = &cli.Command{
 			Value:       playTimeConfig.LogDir,
 			Destination: &playTimeConfig.LogDir,
 		},
+		&cli.DurationFlag{
+			Name:        "scan-freq",
+			Usage:       "Time interval between each of the playtime scan tries",
+			Value:       playTimeConfig.ScanFreq,
+			Destination: &playTimeConfig.ScanFreq,
+		},
 		&cli.BoolFlag{
 			Name:        "dry-scan",
-			Usage:       "",
+			Usage:       "Performs a single scan of the network",
 			Value:       playTimeConfig.DryScan,
 			Destination: &playTimeConfig.DryScan,
+		},
+		&cli.StringFlag{
+			Name:        "filter-clients-with",
+			Usage:       "Substring that will be used to filter only those clients that include it in their Dora name",
+			Value:       playTimeConfig.FilterClientsContaining,
+			Destination: &playTimeConfig.FilterClientsContaining,
 		},
 	},
 	Action: runPlaytime,
@@ -67,13 +84,15 @@ var cmdPlaytime = &cli.Command{
 
 func runPlaytime(ctx context.Context, cmd *cli.Command) error {
 	devnetScanCfg := dasguardian.DevnetScannerConfig{
-		LogLevel:          dasguardian.ParseLogLevel(rootConfig.LogLevel),
-		LogFormat:         &logrus.JSONFormatter{},
-		LogDir:            playTimeConfig.LogDir,
-		Parallelism:       playTimeConfig.Parallelism,
-		DoraApiEndpoint:   playTimeConfig.DoraEndpoint,
-		BeaconApiEndpoint: playTimeConfig.BeaconEndpoint,
-		DryScan:           playTimeConfig.DryScan,
+		LogLevel:                dasguardian.ParseLogLevel(rootConfig.LogLevel),
+		LogFormat:               &logrus.JSONFormatter{},
+		LogDir:                  playTimeConfig.LogDir,
+		Parallelism:             playTimeConfig.Parallelism,
+		DoraApiEndpoint:         playTimeConfig.DoraEndpoint,
+		BeaconApiEndpoint:       playTimeConfig.BeaconEndpoint,
+		ScanFreq:                playTimeConfig.ScanFreq,
+		DryScan:                 playTimeConfig.DryScan,
+		FilterClientsContaining: playTimeConfig.FilterClientsContaining,
 	}
 	devnetScanner, err := dasguardian.NewDevnetScanner(devnetScanCfg)
 	if err != nil {
