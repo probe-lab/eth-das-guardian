@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	testBeaconAPI = "https://beacon.fusaka-devnet-2.ethpandaops.io/"
+	testBeaconAPI = "https://beacon.fusaka-devnet-3.ethpandaops.io/"
 )
 
 func Test_DASGuardianClientInterop(t *testing.T) {

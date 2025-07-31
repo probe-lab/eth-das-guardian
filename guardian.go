@@ -65,7 +65,7 @@ const (
 )
 
 type DasGuardianConfig struct {
-	Logger                  log.FieldLogger
+	Logger                  *log.Logger
 	Libp2pHost              string
 	Libp2pPort              int
 	ConnectionRetries       int
@@ -301,13 +301,13 @@ func (g *DasGuardian) Close() error {
 	if !g.isHostInit.Load() {
 		return nil
 	}
-	log.Info("terminating libp2p host...")
+	g.cfg.Logger.Info("terminating libp2p host...")
 	g.isHostInit.Store(false)
 	return g.host.Close()
 }
 
 func (g *DasGuardian) disconnectPeer(pid peer.ID) error {
-	log.Infof("disconnecting %s", pid.String())
+	g.cfg.Logger.Infof("disconnecting %s", pid.String())
 	return g.host.Network().ClosePeer(pid)
 }
 

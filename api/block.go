@@ -11,7 +11,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-var BlockBase = "eth/v2/beacon/blocks/%d"
+var (
+	BlockBase        = "eth/v2/beacon/blocks/"
+	ErrBlockNotFound = fmt.Errorf("block not found")
+)
 
 type BeaconBlock struct {
 	Version             string                     `json:"version"`
@@ -32,16 +35,26 @@ type FuluBeaconBlock struct {
 	Body          electra.BeaconBlockBody `json:"body"`
 }
 
-func (c *Client) GetBeaconBlock(ctx context.Context, slot uint64) (*spec.VersionedSignedBeaconBlock, error) {
+func (c *Client) GetBeaconBlock(ctx context.Context, slot any) (*spec.VersionedSignedBeaconBlock, error) {
+	// we only accept integers and strings to describe the slots
+	blockQuery := BlockBase
+	switch s := slot.(type) {
+	case int, int32, int64, uint, uint32, uint64:
+		blockQuery = blockQuery + fmt.Sprintf("%d", s)
+	case string:
+		blockQuery = blockQuery + s
+	default:
+		return nil, fmt.Errorf("unrecognized slot %s", slot)
+	}
+
 	versionedBlock := &spec.VersionedSignedBeaconBlock{
 		Version: spec.DataVersionElectra,
 	}
 	beaconBlock := &BeaconBlock{}
-	resp, err := c.get(ctx, c.cfg.QueryTimeout, fmt.Sprintf(BlockBase, slot), "")
+	resp, err := c.get(ctx, c.cfg.QueryTimeout, blockQuery, "")
 	if err != nil {
 		if strings.Contains(err.Error(), "404 Not Found") {
-			fmt.Println("not found!")
-			return new(spec.VersionedSignedBeaconBlock), nil
+			return new(spec.VersionedSignedBeaconBlock), ErrBlockNotFound
 		}
 		return nil, errors.Wrap(err, "requesting beacon-block")
 	}

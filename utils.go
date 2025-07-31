@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	"github.com/sirupsen/logrus"
 )
 
 func ParseNode(rawEnr string) (*enode.Node, error) {
@@ -91,4 +92,21 @@ func hash(data []byte) [32]byte {
 
 func isNill(i any) bool {
 	return i == nil
+}
+
+func ParseLogLevel(level string) logrus.Level {
+	switch level {
+	case "trace":
+		return logrus.TraceLevel
+	case "debug":
+		return logrus.DebugLevel
+	case "info":
+		return logrus.InfoLevel
+	case "warn":
+		return logrus.WarnLevel
+	case "error":
+		return logrus.ErrorLevel
+	default:
+		return logrus.InfoLevel
+	}
 }

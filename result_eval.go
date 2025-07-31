@@ -84,21 +84,28 @@ func evaluateColumnResponses(
 		}
 
 		// check if the commitments match
-		for c, dataCol := range cols[s] {
+		for c := range columnIdxs {
 			blockKzgCommitments, _ := bBlocks[s].BlobKZGCommitments()
-			validCom := 0
-			for _, colCom := range dataCol.KzgCommitments {
-			kzgCheckLoop:
-				for _, kzgCom := range blockKzgCommitments {
-					if matchingBytes(colCom[:], kzgCom[:]) {
-						validCom++
-						break kzgCheckLoop
+			if c >= len(cols[s]) {
+				validKzg[c] = fmt.Sprintf("0/%d", len(blockKzgCommitments))
+				downloaded[c] = fmt.Sprintf("0/%d", len(blockKzgCommitments))
+				validColumn[c] = false
+			} else {
+				dataCol := cols[s]
+				validCom := 0
+				for _, colCom := range dataCol[c].KzgCommitments {
+				kzgCheckLoop:
+					for _, kzgCom := range blockKzgCommitments {
+						if matchingBytes(colCom[:], kzgCom[:]) {
+							validCom++
+							break kzgCheckLoop
+						}
 					}
 				}
+				validKzg[c] = fmt.Sprintf("%d/%d", validCom, len(blockKzgCommitments))
+				downloaded[c] = fmt.Sprintf("%d/%d", len(dataCol[c].KzgCommitments), len(blockKzgCommitments))
+				validColumn[c] = (len(blockKzgCommitments) == validCom)
 			}
-			validKzg[c] = fmt.Sprintf("%d/%d", validCom, len(blockKzgCommitments))
-			downloaded[c] = fmt.Sprintf("%d/%d", len(dataCol.KzgCommitments), len(blockKzgCommitments))
-			validColumn[c] = (len(blockKzgCommitments) == validCom)
 		}
 	}
 	// compose the table
@@ -119,7 +126,7 @@ func matchingBytes(org, to []byte) (equal bool) {
 	return true
 }
 
-func (res *DASEvaluationResult) LogVisualization(logger log.FieldLogger) error {
+func (res *DASEvaluationResult) LogVisualization(logger *log.Logger) error {
 	if res.Slots == nil {
 		return nil
 	}
