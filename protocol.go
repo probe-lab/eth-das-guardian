@@ -80,6 +80,13 @@ type DataColumnSidecarsByRangeRequestV1 struct {
 	Columns   []uint64
 }
 
+type DataColumnSidecarsByRootRequestV1 []DataColumnByRootIdentifier
+
+type DataColumnByRootIdentifier struct {
+	BlockRoot [32]byte `ssz-size:"32"`
+	Columns   []uint64
+}
+
 type DataColumnSidecarV1 struct {
 	Index                        uint64
 	Column                       [][]byte `ssz-max:"4096" ssz-size:"?,2048"`

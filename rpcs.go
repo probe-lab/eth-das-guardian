@@ -337,7 +337,7 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRangeTopicV1))
 	if err != nil {
-		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
+		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRangeTopicV1, pid, err)
 	}
 
 	req := &DataColumnSidecarsByRangeRequestV1{
@@ -355,6 +355,61 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	for i := uint64(0); ; /* no stop condition */ i++ {
 		dataCol := &DataColumnSidecarV1{}
 		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigestFn(slot))
+		if errors.Is(err, io.EOF) {
+			// End of stream.
+			break
+		}
+
+		if err != nil {
+			stream.Reset()
+			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar")
+		}
+
+		if i >= chunks {
+			// The response MUST contain no more than `reqCount` blocks.
+			// (`reqCount` is already capped by `maxRequestDataColumnSideCar`.)
+			stream.Reset()
+			return time.Duration(0), dataColumns, errors.New("invalid - response contains more data column sidecars than requested")
+		}
+
+		dataColumns = append(dataColumns, dataCol)
+	}
+	opDuration := time.Since(tStart)
+
+	// close stream cleanly after successful operation
+	_ = stream.Close()
+	return opDuration, dataColumns, nil
+}
+
+// https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyroot-v1
+func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot [32]byte, columnIdxs []uint64, bslot uint64) (time.Duration, []*DataColumnSidecarV1, error) {
+	dataColumns := make([]*DataColumnSidecarV1, 0)
+	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
+		return time.Duration(0), dataColumns, err
+	}
+	chunks := uint64(1 * len(columnIdxs))
+
+	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRootTopicV1))
+	if err != nil {
+		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRootTopicV1, pid, err)
+	}
+
+	reqBlocks := []DataColumnByRootIdentifier{
+		DataColumnByRootIdentifier{
+			BlockRoot: blockRoot,
+			Columns:   columnIdxs,
+		},
+	}
+	if err := r.writeRequest(stream, DataColumnSidecarsByRootRequestV1(reqBlocks)); err != nil {
+		stream.Reset()
+		return time.Duration(0), dataColumns, fmt.Errorf("write data_columns_by_root request: %w", err)
+	}
+
+	tStart := time.Now()
+	// read and decode column sidecar responses
+	for i := uint64(0); ; /* no stop condition */ i++ {
+		dataCol := &DataColumnSidecarV1{}
+		err := r.readChunkedResponse(stream, dataCol, false, r.cfg.ForkDigestFn(bslot))
 		if errors.Is(err, io.EOF) {
 			// End of stream.
 			break
