@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/attestantio/go-eth2-client/spec"
-	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -99,13 +98,12 @@ func matchingBytes(org, to []byte) (equal bool) {
 }
 
 func evaluateDownloadedColumns(
-	logger logrus.FieldLogger,
+	logger log.FieldLogger,
 	slot uint64,
 	bblock *spec.VersionedSignedBeaconBlock,
 	reqCols []uint64,
 	downloadedCols []*DataColumnSidecarV1,
 ) (downloadedCells, validKzg []string, validColumn []bool, validSlot bool) {
-
 	// define the evaluation result variables
 	downloadedCells = make([]string, len(reqCols))
 	validKzg = make([]string, len(reqCols))
@@ -128,7 +126,7 @@ func evaluateDownloadedColumns(
 	blobCount := len(kzgCommitments)
 	// assume that all the cols are in order, and compare the kzg commitments from the bblock
 	// with the ones of the columns that we got throught the RPCs
-	for c, _ := range reqCols {
+	for c := range reqCols {
 		downloadedCellsCount := 0
 		validKzgCount := 0
 		if c < len(downloadedCells) {

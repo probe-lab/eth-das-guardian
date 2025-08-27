@@ -985,7 +985,8 @@ func (g *DasGuardian) getDataColumnForSlotAndSubnet(
 	ctx context.Context,
 	pid peer.ID,
 	sampSlot []SampleableSlot,
-	columnIdxs []uint64) ([][]*DataColumnSidecarV1, [][]*DataColumnSidecarV1, error) {
+	columnIdxs []uint64,
+) ([][]*DataColumnSidecarV1, [][]*DataColumnSidecarV1, error) {
 	g.cfg.Logger.WithFields(log.Fields{
 		"slots":   len(sampSlot),
 		"columns": len(columnIdxs),

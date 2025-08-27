@@ -395,7 +395,7 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 	}
 
 	reqBlocks := []DataColumnByRootIdentifier{
-		DataColumnByRootIdentifier{
+		{
 			BlockRoot: blockRoot,
 			Columns:   columnIdxs,
 		},
