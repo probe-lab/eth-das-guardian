@@ -3,18 +3,26 @@ package dasguardian
 import (
 	"fmt"
 
+	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
 type DASEvaluationResult struct {
-	NodeID           string
-	Slots            []uint64
-	ColumnIdx        []uint64
-	DownloadedResult [][]string
-	ValidKzg         [][]string
-	ValidColumn      [][]bool
-	ValidSlot        []bool
-	Error            error
+	NodeID      string
+	Slots       []uint64
+	ColumnIdx   []uint64
+	RangeResult []RPCRequestResult
+	RootResult  []RPCRequestResult
+	ValidSlot   []bool
+	Error       error
+}
+
+type RPCRequestResult struct {
+	DownloadResult []string
+	ValidKzg       []string
+	ValidColumn    []bool
+	ValidSlot      bool
 }
 
 func evaluateColumnResponses(
@@ -22,91 +30,55 @@ func evaluateColumnResponses(
 	nodeID string,
 	sampleableSlots []SampleableSlot,
 	columnIdxs []uint64,
-	cols [][]*DataColumnSidecarV1,
+	rangeCols [][]*DataColumnSidecarV1,
+	rootCols [][]*DataColumnSidecarV1,
 ) (DASEvaluationResult, error) {
 	slots := SlotsFromSampleableSlots(sampleableSlots)
 	bBlocks := BlocksFromSampleableSlots(sampleableSlots)
 
 	dasEvalRes := DASEvaluationResult{
-		NodeID:           nodeID,
-		Slots:            slots,
-		ColumnIdx:        columnIdxs,
-		DownloadedResult: make([][]string, len(slots)),
-		ValidKzg:         make([][]string, len(slots)),
-		ValidColumn:      make([][]bool, len(slots)),
-		ValidSlot:        make([]bool, len(slots)),
+		NodeID:      nodeID,
+		Slots:       slots,
+		ColumnIdx:   columnIdxs,
+		RangeResult: make([]RPCRequestResult, len(slots)),
+		RootResult:  make([]RPCRequestResult, len(slots)),
+		ValidSlot:   make([]bool, len(slots)),
 	}
 
-	for s := range slots {
-		downloaded := make([]string, len(columnIdxs))
-		validKzg := make([]string, len(columnIdxs))
-		validColumn := make([]bool, len(columnIdxs))
-		validSlot := true // true, unless something is not correct
-		slot, _ := bBlocks[s].Slot()
-		defer func() {
-			dasEvalRes.DownloadedResult[s] = downloaded
-			dasEvalRes.ValidKzg[s] = validKzg
-			dasEvalRes.ValidSlot[s] = validSlot
-			dasEvalRes.ValidColumn[s] = validColumn
-		}()
+	for i, s := range slots {
+		bblock := bBlocks[i]
+		// check the range RPCs
+		rpcResult := RPCRequestResult{}
+		down, validKzgs, validColumns, rangeValidSlot := evaluateDownloadedColumns(
+			logger,
+			s,
+			bblock,
+			columnIdxs,
+			rangeCols[i],
+		)
+		rpcResult.DownloadResult = down
+		rpcResult.ValidKzg = validKzgs
+		rpcResult.ValidColumn = validColumns
+		rpcResult.ValidSlot = rangeValidSlot
+		dasEvalRes.RangeResult[i] = rpcResult
 
-		// check if we could actually download anything from the
-		blobCount := 0
-		if bBlocks[s] != nil {
-			kzgCommitments, _ := bBlocks[s].BlobKZGCommitments()
-			blobCount = len(kzgCommitments)
-		}
-		if len(cols[s]) == 0 {
-			for i := range columnIdxs {
-				downloaded[i] = fmt.Sprintf("0/%d", blobCount)
-				validKzg[i] = fmt.Sprintf("0/%d", blobCount)
-				validColumn[i] = (blobCount == 0)
-			}
-			validSlot = (blobCount == 0)
-			if blobCount != 0 {
-				logger.Errorf(
-					"no data cols for slot (downloaded data-cols %d) (block %d)",
-					len(cols[s]),
-					slot,
-				)
-			}
-			continue
-		}
+		// check the root RPCs
+		rpcResult = RPCRequestResult{}
+		down, validKzgs, validColumns, rootValidSlot := evaluateDownloadedColumns(
+			logger,
+			s,
+			bblock,
+			columnIdxs,
+			rangeCols[i],
+		)
+		rpcResult.DownloadResult = down
+		rpcResult.ValidKzg = validKzgs
+		rpcResult.ValidColumn = validColumns
+		rpcResult.ValidSlot = rootValidSlot
+		dasEvalRes.RootResult[i] = rpcResult
 
-		// check if the received columns match the requested ones
-		if uint64(slot) != uint64(cols[s][0].SignedBlockHeader.Message.Slot) {
-			logger.Warnf(
-				"slot (%d) and col-slot (%d) don't match",
-				slot,
-				uint64(cols[s][0].SignedBlockHeader.Message.Slot),
-			)
-			validSlot = false
-		}
-
-		// check if the commitments match
-		for c := range columnIdxs {
-			blockKzgCommitments, _ := bBlocks[s].BlobKZGCommitments()
-			if c >= len(cols[s]) {
-				validKzg[c] = fmt.Sprintf("0/%d", len(blockKzgCommitments))
-				downloaded[c] = fmt.Sprintf("0/%d", len(blockKzgCommitments))
-				validColumn[c] = false
-			} else {
-				dataCol := cols[s]
-				validCom := 0
-				for _, colCom := range dataCol[c].KzgCommitments {
-				kzgCheckLoop:
-					for _, kzgCom := range blockKzgCommitments {
-						if matchingBytes(colCom[:], kzgCom[:]) {
-							validCom++
-							break kzgCheckLoop
-						}
-					}
-				}
-				validKzg[c] = fmt.Sprintf("%d/%d", validCom, len(blockKzgCommitments))
-				downloaded[c] = fmt.Sprintf("%d/%d", len(dataCol[c].KzgCommitments), len(blockKzgCommitments))
-				validColumn[c] = (len(blockKzgCommitments) == validCom)
-			}
-		}
+		// judge validity of the slot
+		dasEvalRes.ValidSlot[i] = rangeValidSlot && rootValidSlot
 	}
 	// compose the table
 	return dasEvalRes, nil
@@ -126,6 +98,73 @@ func matchingBytes(org, to []byte) (equal bool) {
 	return true
 }
 
+func evaluateDownloadedColumns(
+	logger logrus.FieldLogger,
+	slot uint64,
+	bblock *spec.VersionedSignedBeaconBlock,
+	reqCols []uint64,
+	downloadedCols []*DataColumnSidecarV1,
+) (downloadedCells, validKzg []string, validColumn []bool, validSlot bool) {
+
+	// define the evaluation result variables
+	downloadedCells = make([]string, len(reqCols))
+	validKzg = make([]string, len(reqCols))
+	validColumn = make([]bool, len(reqCols))
+	validSlot = true // true, unless something is not correct
+
+	// check if we could actually download anything from the
+	if bblock == nil {
+		// TODO: reconsider if an empty block is valid or not
+		logger.Warnf("unable bblock for slot %d is empty", slot)
+		return downloadedCells, validKzg, validColumn, validSlot
+	}
+	kzgCommitments, err := bblock.BlobKZGCommitments()
+	if err != nil {
+		logger.Warnf("unable to retrieve kzg commitmets from bblock %d: %v", slot, err)
+		return downloadedCells, validKzg, validColumn, validSlot
+	}
+
+	// check each of the Columns
+	blobCount := len(kzgCommitments)
+	// assume that all the cols are in order, and compare the kzg commitments from the bblock
+	// with the ones of the columns that we got throught the RPCs
+	for c, _ := range reqCols {
+		downloadedCellsCount := 0
+		validKzgCount := 0
+		if c < len(downloadedCells) {
+			for _, cellKzg := range downloadedCols[c].KzgCommitments {
+				downloadedCellsCount++
+			kzgCheckLoop:
+				for _, kzgCom := range kzgCommitments {
+					if matchingBytes(cellKzg[:], kzgCom[:]) {
+						validKzgCount++
+						break kzgCheckLoop
+					}
+				}
+			}
+		}
+		downloadedCells[c] = fmt.Sprintf("%d/%d", downloadedCellsCount, blobCount)
+		validKzg[c] = fmt.Sprintf("%d/%d", validKzgCount, blobCount)
+		validCell := downloadedCellsCount == blobCount && validKzgCount == blobCount
+		validColumn[c] = validCell
+		if !validCell {
+			validSlot = false
+		}
+	}
+	if len(downloadedCols) > 0 {
+		if uint64(slot) != uint64(downloadedCols[0].SignedBlockHeader.Message.Slot) {
+			log.Warnf(
+				"slot (%d) and col-slot (%d) don't match",
+				slot,
+				uint64(downloadedCols[0].SignedBlockHeader.Message.Slot),
+			)
+			validSlot = false
+		}
+	}
+
+	return downloadedCells, validKzg, validColumn, validSlot
+}
+
 func (res *DASEvaluationResult) LogVisualization(logger *log.Logger) error {
 	if res.Slots == nil {
 		return nil
@@ -138,24 +177,44 @@ func (res *DASEvaluationResult) LogVisualization(logger *log.Logger) error {
 		} else {
 			logger.Warnf("slot (%d) valid (%t):\n", slot, res.ValidSlot[s])
 		}
-		for c, sum := range res.DownloadedResult[s] {
-			if res.ValidColumn[s][c] {
+		for colIdx, downloadedResult := range res.RangeResult[s].DownloadResult {
+			// log RangeResults
+			if res.RangeResult[colIdx].ValidSlot {
 				logger.Infof(
-					"slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
+					"range req: slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
 					slot,
-					res.ColumnIdx[c],
-					sum,
-					res.ValidKzg[s][c],
+					res.ColumnIdx[colIdx],
+					downloadedResult,
+					res.RangeResult[s].ValidKzg[colIdx],
 				)
 			} else {
 				logger.Warnf(
 					"slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
 					slot,
-					res.ColumnIdx[c],
-					sum,
-					res.ValidKzg[s][c],
+					res.ColumnIdx[colIdx],
+					downloadedResult,
+					res.RangeResult[s].ValidKzg[colIdx],
 				)
 			}
+			// log RootResults
+			if res.RootResult[colIdx].ValidSlot {
+				logger.Infof(
+					"root req: slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
+					slot,
+					res.ColumnIdx[colIdx],
+					res.RootResult[s].DownloadResult[colIdx],
+					res.RootResult[s].ValidKzg[colIdx],
+				)
+			} else {
+				logger.Warnf(
+					"slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
+					slot,
+					res.ColumnIdx[colIdx],
+					res.RootResult[s].DownloadResult[colIdx],
+					res.RootResult[s].ValidKzg[colIdx],
+				)
+			}
+
 		}
 	}
 	// compose the table

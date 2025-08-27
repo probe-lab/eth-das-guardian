@@ -512,15 +512,28 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSele
 	// perform DAS
 	if len(slots) > 0 {
 		visualizeRandomSlots(slots)
-		dataCols, err := g.getDataColumnForSlotAndSubnet(ctx, peerInfo.AddrInfo.ID, slots, metadataCustodyIdxs[:])
+		rangeDataCols, rootDataCols, err := g.getDataColumnForSlotAndSubnet(
+			ctx,
+			peerInfo.AddrInfo.ID,
+			slots,
+			metadataCustodyIdxs[:],
+		)
 		if err != nil {
 			return scanResult, err
 		}
 		// evaluate and return the results
-		evalResult, err := evaluateColumnResponses(g.cfg.Logger, peerInfo.Enode.ID().String(), slots, metadataCustodyIdxs, dataCols)
+		evalResult, err := evaluateColumnResponses(
+			g.cfg.Logger,
+			peerInfo.Enode.ID().String(),
+			slots,
+			metadataCustodyIdxs,
+			rangeDataCols,
+			rootDataCols,
+		)
 		if err != nil {
 			return scanResult, err
 		}
+
 		scanResult.EvalResult = evalResult
 	}
 
@@ -620,8 +633,8 @@ func (g *DasGuardian) monitorEndpoint(ctx context.Context, slotSelector SlotSele
 		return err
 	}
 
-	for s, slotRes := range res.EvalResult.ValidSlot {
-		if !slotRes {
+	for s, validSlot := range res.EvalResult.ValidSlot {
+		if !validSlot {
 			g.cfg.Logger.Errorf("the monitoring node didn't have the data for slot")
 			invalidSlots = append(invalidSlots, res.EvalResult.Slots[s])
 		}
@@ -968,37 +981,63 @@ func (g *DasGuardian) composeLocalBeaconMetadata() (*MetaDataV2, *MetaDataV3) {
 	return metadataV2, metadataV3
 }
 
-func (g *DasGuardian) getDataColumnForSlotAndSubnet(ctx context.Context, pid peer.ID, sampSlot []SampleableSlot, columnIdxs []uint64) ([][]*DataColumnSidecarV1, error) {
+func (g *DasGuardian) getDataColumnForSlotAndSubnet(
+	ctx context.Context,
+	pid peer.ID,
+	sampSlot []SampleableSlot,
+	columnIdxs []uint64) ([][]*DataColumnSidecarV1, [][]*DataColumnSidecarV1, error) {
 	g.cfg.Logger.WithFields(log.Fields{
 		"slots":   len(sampSlot),
 		"columns": len(columnIdxs),
 	}).Info("sampling node for...")
 
 	// TODO: make sure that we limit the number of columns that we request (slots * idxs * columns)
-	dataColumns := make([][]*DataColumnSidecarV1, len(sampSlot))
+	rangeDataColumns := make([][]*DataColumnSidecarV1, len(sampSlot))
+	rootDataColumns := make([][]*DataColumnSidecarV1, len(sampSlot))
 
 	startT := time.Now()
 	// make the request for each slots
 	for s, completeSlot := range sampSlot {
 		// make the request per each column
-		duration, cols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, completeSlot.Slot, columnIdxs)
+		// Range Request
+		rangeDuration, rangeCols, err := g.rpcServ.DataColumnByRangeV1(ctx, pid, completeSlot.Slot, columnIdxs)
 		if err != nil {
 			g.cfg.Logger.Error(err)
-			return dataColumns, err
+			return rangeDataColumns, rootDataColumns, err
 		}
-		dataColumns[s] = cols
+		rangeDataColumns[s] = rangeCols
 
+		// Root Request
+		blockRoot, err := completeSlot.BeaconBlock.Root()
+		if err != nil {
+			g.cfg.Logger.Error(err)
+			return rangeDataColumns, rootDataColumns, err
+		}
+		rootDuration, rootCols, err := g.rpcServ.DataColumnByRootV1(
+			ctx,
+			pid,
+			blockRoot,
+			columnIdxs,
+			completeSlot.Slot,
+		)
+		if err != nil {
+			g.cfg.Logger.Error(err)
+			return rangeDataColumns, rootDataColumns, err
+		}
+		rootDataColumns[s] = rootCols
 		// compose the results
 		g.cfg.Logger.WithFields(log.Fields{
-			"req-duration": duration,
-			"slot":         completeSlot.Slot,
-			"das-result":   fmt.Sprintf("%d/%d columns", len(cols), len(columnIdxs)),
-		}).Info("req info...")
+			"slot":               completeSlot.Slot,
+			"range-req-duration": rangeDuration,
+			"root-req-duration":  rootDuration,
+			"range-das-result":   fmt.Sprintf("%d/%d columns", len(rangeCols), len(columnIdxs)),
+			"root-das-result":    fmt.Sprintf("%d/%d columns", len(rootCols), len(columnIdxs)),
+		}).Info("sampling requests' summary...")
 	}
 
 	opDur := time.Since(startT)
 	g.cfg.Logger.WithFields(log.Fields{
 		"duration": opDur,
 	}).Info("node custody sampling done...")
-	return dataColumns, nil
+	return rangeDataColumns, rootDataColumns, nil
 }

@@ -325,10 +325,10 @@ func (m *clientMonitor) scanClient(ctx context.Context, slots int32) ClientResul
 
 	// make sure that the resutls are correct
 	// check the number of columns
-	for i, validSlot := range scanResult.EvalResult.ValidSlot {
-		if !validSlot {
+	for i, slot := range scanResult.EvalResult.Slots {
+		if !scanResult.EvalResult.ValidSlot[i] {
 			result.Status = StatusFailed
-			result.Error = fmt.Errorf("slot %d was invalid", scanResult.EvalResult.Slots[i])
+			result.Error = fmt.Errorf("slot %d was invalid", slot)
 			return result
 		}
 	}
