@@ -53,13 +53,14 @@ func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
 	return nil
 }
 
-func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID) (err error) {
+func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID, goodbyeCode uint64) (err error) {
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCGoodByeTopicV1))
 	if err != nil {
 		return fmt.Errorf("new %s stream to peer %s: %w", RPCGoodByeTopicV1, pid, err)
 	}
 
-	req := uint64(1)
+	// make sure that we write the given code on goodbye
+	req := uint64(goodbyeCode)
 	if err := r.writeRequest(stream, &req); err != nil {
 		stream.Reset()
 		return fmt.Errorf("write goodbye request: %w", err)

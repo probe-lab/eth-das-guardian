@@ -306,8 +306,18 @@ func (g *DasGuardian) Close() error {
 	return g.host.Close()
 }
 
-func (g *DasGuardian) disconnectPeer(pid peer.ID) error {
+func (g *DasGuardian) disconnectPeer(ctx context.Context, pid peer.ID) error {
 	g.cfg.Logger.Infof("disconnecting %s", pid.String())
+
+	// make goodbye before disconnecting
+	gbCtx, gbCancel := context.WithTimeout(ctx, g.cfg.ConnectionTimeout)
+	defer gbCancel()
+	err := g.rpcServ.GoodBye(gbCtx, pid, GoodbyeCodeClientShutdown)
+	if err != nil {
+		log.Errorf("saying goodbye to peer %s - %v", pid.String(), err)
+		return err
+	}
+
 	return g.host.Network().ClosePeer(pid)
 }
 
@@ -449,7 +459,7 @@ func (g *DasGuardian) scanElectra(ctx context.Context, peerInfo *PeerInfo, slotS
 	prettyLogrusFields(g.cfg.Logger, "beacon status...", statusLogs)
 	prettyLogrusFields(g.cfg.Logger, "beacon metadata...", metadataLogs)
 
-	if err := g.disconnectPeer(peerInfo.AddrInfo.ID); err != nil {
+	if err := g.disconnectPeer(ctx, peerInfo.AddrInfo.ID); err != nil {
 		log.Errorf("unable to disconnect from remote peer %s - %s", peerInfo.AddrInfo.ID.String(), err.Error())
 	}
 	return scanResult, nil
@@ -537,7 +547,7 @@ func (g *DasGuardian) scanFulu(ctx context.Context, peerInfo *PeerInfo, slotSele
 		scanResult.EvalResult = evalResult
 	}
 
-	if err := g.disconnectPeer(peerInfo.AddrInfo.ID); err != nil {
+	if err := g.disconnectPeer(ctx, peerInfo.AddrInfo.ID); err != nil {
 		log.Errorf("unable to disconnect from remote peer %s - %s", peerInfo.AddrInfo.ID.String(), err.Error())
 	}
 
