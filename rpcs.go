@@ -65,18 +65,7 @@ func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID, goodbyeCode uint64) 
 		stream.Reset()
 		return fmt.Errorf("write goodbye request: %w", err)
 	}
-
-	// read and decode goodbye response
-	resp := uint64(0)
-	if err := r.readResponse(stream, &resp); err != nil {
-		stream.Reset()
-		return fmt.Errorf("read goodbye response: %w", err)
-	}
-
-	// we have the data that we want, close stream cleanly
-	_ = stream.Close()
-
-	return nil
+	return stream.Close()
 }
 
 func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (status *StatusV1, err error) {

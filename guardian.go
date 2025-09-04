@@ -314,7 +314,6 @@ func (g *DasGuardian) disconnectPeer(ctx context.Context, pid peer.ID) error {
 	defer gbCancel()
 	err := g.rpcServ.GoodBye(gbCtx, pid, GoodbyeCodeClientShutdown)
 	if err != nil {
-		log.Errorf("saying goodbye to peer %s - %v", pid.String(), err)
 		return err
 	}
 
