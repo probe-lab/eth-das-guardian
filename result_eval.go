@@ -181,7 +181,7 @@ func (res *DASEvaluationResult) LogVisualization(logger *log.Logger) error {
 		}
 		for colIdx, downloadedResult := range res.RangeResult[s].DownloadResult {
 			// log RangeResults
-			if res.RangeResult[colIdx].ValidSlot {
+			if res.RangeResult[s].ValidSlot {
 				logger.Infof(
 					"range req: slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
 					slot,
@@ -199,7 +199,7 @@ func (res *DASEvaluationResult) LogVisualization(logger *log.Logger) error {
 				)
 			}
 			// log RootResults
-			if res.RootResult[colIdx].ValidSlot {
+			if res.RootResult[s].ValidSlot {
 				logger.Infof(
 					"root req: slot(%d) col(%d) - data-cols(%s) valid-kzgs(%s)",
 					slot,
