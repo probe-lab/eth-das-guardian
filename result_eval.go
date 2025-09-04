@@ -103,12 +103,12 @@ func evaluateDownloadedColumns(
 	bblock *spec.VersionedSignedBeaconBlock,
 	reqCols []uint64,
 	downloadedCols []*DataColumnSidecarV1,
-) (downloadedCells, validKzg []string, validColumn []bool, validSlot bool) {
+) ([]string, []string, []bool, bool) {
 	// define the evaluation result variables
-	downloadedCells = make([]string, len(reqCols))
-	validKzg = make([]string, len(reqCols))
-	validColumn = make([]bool, len(reqCols))
-	validSlot = true // true, unless something is not correct
+	downloadedCells := make([]string, len(reqCols))
+	validKzg := make([]string, len(reqCols))
+	validColumn := make([]bool, len(reqCols))
+	validSlot := true // true, unless something is not correct
 
 	// check if we could actually download anything from the
 	if bblock == nil {
@@ -121,15 +121,18 @@ func evaluateDownloadedColumns(
 		logger.Warnf("unable to retrieve kzg commitmets from bblock %d: %v", slot, err)
 		return downloadedCells, validKzg, validColumn, validSlot
 	}
-
-	// check each of the Columns
 	blobCount := len(kzgCommitments)
+	if blobCount == 0 {
+		return downloadedCells, validKzg, validColumn, validSlot
+	}
+	// check each of the Columns
 	// assume that all the cols are in order, and compare the kzg commitments from the bblock
 	// with the ones of the columns that we got throught the RPCs
 	for c := range reqCols {
 		downloadedCellsCount := 0
+		validCol := false
 		validKzgCount := 0
-		if c < len(downloadedCells) {
+		if c < len(downloadedCols) {
 			for _, cellKzg := range downloadedCols[c].KzgCommitments {
 				downloadedCellsCount++
 			kzgCheckLoop:
@@ -140,12 +143,13 @@ func evaluateDownloadedColumns(
 					}
 				}
 			}
+			// if we have as many valid KZG as blobs in the block -> is a valid column
+			validCol = (blobCount == validKzgCount)
 		}
 		downloadedCells[c] = fmt.Sprintf("%d/%d", downloadedCellsCount, blobCount)
 		validKzg[c] = fmt.Sprintf("%d/%d", validKzgCount, blobCount)
-		validCell := downloadedCellsCount == blobCount && validKzgCount == blobCount
-		validColumn[c] = validCell
-		if !validCell {
+		validColumn[c] = validCol
+		if !validCol {
 			validSlot = false
 		}
 	}
