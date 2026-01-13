@@ -7,8 +7,8 @@ toolchain go1.24.3
 require (
 	github.com/attestantio/go-eth2-client v0.26.1-0.20250812165705-a4bcce29e341
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
-	github.com/ethereum/go-ethereum v1.15.11
-	github.com/golang/snappy v0.0.5-0.20231225225746-43d5d4cd4e0e
+	github.com/ethereum/go-ethereum v1.16.8
+	github.com/golang/snappy v1.0.0
 	github.com/holiman/uint256 v1.3.2
 	github.com/libp2p/go-libp2p v0.41.1
 	github.com/libp2p/go-libp2p-mplex v0.10.0
@@ -23,6 +23,7 @@ require (
 )
 
 require (
+	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -128,7 +129,7 @@ require (
 	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/tools v0.35.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
