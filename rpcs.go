@@ -21,17 +21,16 @@ func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
 	if err != nil {
 		return fmt.Errorf("new %s stream to peer %s: %w", RPCPingTopicV1, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	req := uint64(1)
 	if err := r.writeRequest(stream, &req); err != nil {
-		stream.Reset()
 		return fmt.Errorf("write ping request: %w", err)
 	}
 
 	// read and decode ping response
 	resp := uint64(0)
 	if err := r.readResponse(stream, &resp); err != nil {
-		stream.Reset()
 		return fmt.Errorf("read ping response: %w", err)
 	}
 
@@ -46,34 +45,33 @@ func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID, goodbyeCode uint64) 
 	if err != nil {
 		return fmt.Errorf("new %s stream to peer %s: %w", RPCGoodByeTopicV1, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	// make sure that we write the given code on goodbye
 	req := uint64(goodbyeCode)
 	if err := r.writeRequest(stream, &req); err != nil {
-		stream.Reset()
 		return fmt.Errorf("write goodbye request: %w", err)
 	}
-	return stream.Close()
 }
 
 func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (status *StatusV1, err error) {
 	if st == nil {
 		return nil, fmt.Errorf("the given local-status-v1 is a nil pointer")
 	}
+
 	stream, err := r.host.NewStream(ctx, pid, RPCStatusTopicV1)
 	if err != nil {
 		return nil, fmt.Errorf("new stream to peer %s: %w", pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	if err := r.writeRequest(stream, st); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("write status-v1 request: %w", err)
 	}
 
 	// read and decode status response
 	resp := &StatusV1{}
 	if err := r.readResponse(stream, resp); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("read status-v1 response: %w", err)
 	}
 
@@ -94,14 +92,12 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 	}
 
 	if err := r.writeRequest(stream, st); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("write status-v2 request: %w", err)
 	}
 
 	// read and decode status response
 	resp := &StatusV2{}
 	if err := r.readResponse(stream, resp); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("read status-v2 response: %w", err)
 	}
 
@@ -118,14 +114,12 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2
 	}
 
 	if err := r.writeRequest(stream, nil); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("write metadata-v2 request: %w", err)
 	}
 
 	// read and decode metadata response
 	resp = &MetaDataV2{}
 	if err := r.readResponse(stream, resp); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("read metadata-v2 response: %w", err)
 	}
 
@@ -154,6 +148,7 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 		}
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV3, pid, err)
 	}
+	defer stream.Reset()
 
 	if err := r.writeRequest(stream, nil); err != nil {
 		stream.Reset()
@@ -175,7 +170,6 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 	// read and decode metadata response with detailed logging
 	resp = &MetaDataV3{}
 	if err := r.readResponse(stream, resp); err != nil {
-		stream.Reset()
 		if log.GetLevel() >= log.DebugLevel {
 			r.cfg.Logger.WithFields(log.Fields{
 				"peer_id": pid.String(),
@@ -208,6 +202,7 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 	if err != nil {
 		return blocks, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	req := &BeaconBlocksByRangeRequestV1{
 		StartSlot: uint64(startSlot),
@@ -215,7 +210,6 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 		Step:      1,
 	}
 	if err := r.writeRequest(stream, req); err != nil {
-		stream.Reset()
 		return blocks, fmt.Errorf("write block_by_range request: %w", err)
 	}
 
@@ -228,7 +222,6 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 			break
 		}
 		if err != nil {
-			stream.Reset()
 			return nil, fmt.Errorf("reading block_by_range request: %w", err)
 		}
 		blocks = append(blocks, block)
@@ -236,6 +229,7 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 
 	// close stream cleanly after successful operation
 	_ = stream.Close()
+
 	return blocks, nil
 }
 
@@ -245,6 +239,7 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 	if err != nil {
 		return time.Duration(0), blocks, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	req := &BeaconBlocksByRangeRequestV1{
 		StartSlot: startSlot,
@@ -252,7 +247,6 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 		Step:      1,
 	}
 	if err := r.writeRequest(stream, req); err != nil {
-		stream.Reset()
 		return time.Duration(0), blocks, fmt.Errorf("write block_by_range request: %w", err)
 	}
 
@@ -266,7 +260,6 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 			break
 		}
 		if err != nil {
-			stream.Reset()
 			return time.Duration(0), nil, fmt.Errorf("reading block_by_range request: %w", err)
 		}
 		blocks = append(blocks, block)
@@ -275,6 +268,7 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 
 	// close stream cleanly after successful operation
 	_ = stream.Close()
+
 	return opDuration, blocks, nil
 }
 
@@ -288,6 +282,7 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	if err != nil {
 		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRangeTopicV1, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	req := &DataColumnSidecarsByRangeRequestV1{
 		StartSlot: slot,
@@ -295,7 +290,6 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 		Columns:   columnIdxs,
 	}
 	if err := r.writeRequest(stream, req); err != nil {
-		stream.Reset()
 		return time.Duration(0), dataColumns, fmt.Errorf("write data_columns_by_range request: %w", err)
 	}
 
@@ -310,14 +304,12 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 		}
 
 		if err != nil {
-			stream.Reset()
 			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar")
 		}
 
 		if i >= chunks {
 			// The response MUST contain no more than `reqCount` blocks.
 			// (`reqCount` is already capped by `maxRequestDataColumnSideCar`.)
-			stream.Reset()
 			return time.Duration(0), dataColumns, errors.New("invalid - response contains more data column sidecars than requested")
 		}
 
@@ -339,6 +331,7 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 	if err != nil {
 		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRootTopicV1, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	reqBlocks := []DataColumnByRootIdentifier{
 		{
@@ -347,7 +340,6 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 		},
 	}
 	if err := r.writeRequest(stream, DataColumnSidecarsByRootRequestV1(reqBlocks)); err != nil {
-		stream.Reset()
 		return time.Duration(0), dataColumns, fmt.Errorf("write data_columns_by_root request: %w", err)
 	}
 
@@ -362,14 +354,12 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 		}
 
 		if err != nil {
-			stream.Reset()
 			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar")
 		}
 
 		if i >= chunks {
 			// The response MUST contain no more than `reqCount` blocks.
 			// (`reqCount` is already capped by `maxRequestDataColumnSideCar`.)
-			stream.Reset()
 			return time.Duration(0), dataColumns, errors.New("invalid - response contains more data column sidecars than requested")
 		}
 
@@ -379,5 +369,6 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 
 	// close stream cleanly after successful operation
 	_ = stream.Close()
+
 	return opDuration, dataColumns, nil
 }
