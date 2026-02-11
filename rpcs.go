@@ -17,7 +17,7 @@ import (
 const PeerDAScolumns = 128
 
 func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCPingTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCPingTopicV1)
 	if err != nil {
 		return fmt.Errorf("new %s stream to peer %s: %w", RPCPingTopicV1, pid, err)
 	}
@@ -42,7 +42,7 @@ func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
 }
 
 func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID, goodbyeCode uint64) (err error) {
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCGoodByeTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCGoodByeTopicV1)
 	if err != nil {
 		return fmt.Errorf("new %s stream to peer %s: %w", RPCGoodByeTopicV1, pid, err)
 	}
@@ -60,7 +60,7 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (stat
 	if st == nil {
 		return nil, fmt.Errorf("the given local-status-v1 is a nil pointer")
 	}
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCStatusTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCStatusTopicV1)
 	if err != nil {
 		return nil, fmt.Errorf("new stream to peer %s: %w", pid, err)
 	}
@@ -88,7 +88,7 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 		return nil, fmt.Errorf("the given local-status-v2 is a nil pointer")
 	}
 
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCStatusTopicV2))
+	stream, err := r.host.NewStream(ctx, pid, RPCStatusTopicV2)
 	if err != nil {
 		return nil, fmt.Errorf("new stream to peer %s: %w", pid, err)
 	}
@@ -112,7 +112,7 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 }
 
 func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2, err error) {
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV2))
+	stream, err := r.host.NewStream(ctx, pid, RPCMetaDataTopicV2)
 	if err != nil {
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
@@ -143,7 +143,7 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 		}).Debug("Creating MetaDataV3 stream")
 	}
 
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV3))
+	stream, err := r.host.NewStream(ctx, pid, RPCMetaDataTopicV3)
 	if err != nil {
 		if log.GetLevel() >= log.DebugLevel {
 			r.cfg.Logger.WithFields(log.Fields{
@@ -204,7 +204,7 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 // block requests
 func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, finishSlot int64) ([]*deneb.SignedBeaconBlock, error) {
 	blocks := make([]*deneb.SignedBeaconBlock, 0)
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCBlocksByRangeTopicV2))
+	stream, err := r.host.NewStream(ctx, pid, RPCBlocksByRangeTopicV2)
 	if err != nil {
 		return blocks, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
@@ -241,7 +241,7 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 
 func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, finishSlot uint64) (time.Duration, []*deneb.SignedBeaconBlock, error) {
 	blocks := make([]*deneb.SignedBeaconBlock, 0)
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCBlocksByRangeTopicV2))
+	stream, err := r.host.NewStream(ctx, pid, RPCBlocksByRangeTopicV2)
 	if err != nil {
 		return time.Duration(0), blocks, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
@@ -284,7 +284,7 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	dataColumns := make([]*DataColumnSidecarV1, 0)
 	chunks := uint64(1 * len(columnIdxs) * PeerDAScolumns)
 
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRangeTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCDataColumnSidecarsByRangeTopicV1)
 	if err != nil {
 		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRangeTopicV1, pid, err)
 	}
@@ -335,7 +335,7 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 	dataColumns := make([]*DataColumnSidecarV1, 0)
 	chunks := uint64(1 * len(columnIdxs))
 
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRootTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCDataColumnSidecarsByRootTopicV1)
 	if err != nil {
 		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRootTopicV1, pid, err)
 	}
