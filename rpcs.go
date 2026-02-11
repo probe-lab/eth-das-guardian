@@ -11,10 +11,9 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
-const PeerDAScolumns = 128
+const PeerDASColumns = 128
 
 func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
 	stream, err := r.host.NewStream(ctx, pid, RPCPingTopicV1)
@@ -48,10 +47,13 @@ func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID, goodbyeCode uint64) 
 	defer stream.Reset() // no-op if stream closed
 
 	// make sure that we write the given code on goodbye
-	req := uint64(goodbyeCode)
-	if err := r.writeRequest(stream, &req); err != nil {
+	if err := r.writeRequest(stream, &goodbyeCode); err != nil {
 		return fmt.Errorf("write goodbye request: %w", err)
 	}
+
+	_ = stream.Close()
+
+	return nil
 }
 
 func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (status *StatusV1, err error) {
@@ -90,6 +92,7 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 	if err != nil {
 		return nil, fmt.Errorf("new stream to peer %s: %w", pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	if err := r.writeRequest(stream, st); err != nil {
 		return nil, fmt.Errorf("write status-v2 request: %w", err)
@@ -112,6 +115,7 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2
 	if err != nil {
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	if err := r.writeRequest(stream, nil); err != nil {
 		return nil, fmt.Errorf("write metadata-v2 request: %w", err)
@@ -184,7 +188,6 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 	return resp, nil
 }
 
-// block requests
 func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, finishSlot int64) ([]*deneb.SignedBeaconBlock, error) {
 	blocks := make([]*deneb.SignedBeaconBlock, 0)
 	stream, err := r.host.NewStream(ctx, pid, RPCBlocksByRangeTopicV2)
@@ -265,7 +268,7 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 // https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyrange-v1
 func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uint64, columnIdxs []uint64) (time.Duration, []*DataColumnSidecarV1, error) {
 	dataColumns := make([]*DataColumnSidecarV1, 0)
-	chunks := uint64(1 * len(columnIdxs) * PeerDAScolumns)
+	chunks := uint64(1 * len(columnIdxs) * PeerDASColumns)
 
 	stream, err := r.host.NewStream(ctx, pid, RPCDataColumnSidecarsByRangeTopicV1)
 	if err != nil {
@@ -311,7 +314,7 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	return opDuration, dataColumns, nil
 }
 
-// https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyroot-v1
+// DataColumnByRootV1 taken from https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyroot-v1
 func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot [32]byte, columnIdxs []uint64, bslot uint64) (time.Duration, []*DataColumnSidecarV1, error) {
 	dataColumns := make([]*DataColumnSidecarV1, 0)
 	chunks := uint64(1 * len(columnIdxs))
