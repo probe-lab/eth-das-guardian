@@ -10,25 +10,13 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
 const PeerDAScolumns = 128
 
-func (r *ReqResp) EnsureConnectionToPeer(ctx context.Context, pid peer.ID) error {
-	constatus := r.host.Network().Connectedness(pid)
-	if constatus != network.Connected {
-		return r.host.Connect(ctx, r.host.Peerstore().PeerInfo(pid))
-	}
-	return nil
-}
-
 func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return err
-	}
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCPingTopicV1))
 	if err != nil {
 		return fmt.Errorf("new %s stream to peer %s: %w", RPCPingTopicV1, pid, err)
@@ -72,9 +60,6 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (stat
 	if isNill(st) {
 		return nil, fmt.Errorf("the given local-status-v1 is a nil pointer")
 	}
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return nil, err
-	}
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCStatusTopicV1))
 	if err != nil {
 		return nil, fmt.Errorf("new stream to peer %s: %w", pid, err)
@@ -102,9 +87,7 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 	if isNill(st) {
 		return nil, fmt.Errorf("the given local-status-v2 is a nil pointer")
 	}
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return nil, errors.Wrap(err, "connection wasn't stablished when requesting status-v2")
-	}
+
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCStatusTopicV2))
 	if err != nil {
 		return nil, fmt.Errorf("new stream to peer %s: %w", pid, err)
@@ -129,9 +112,6 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 }
 
 func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2, err error) {
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return nil, err
-	}
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV2))
 	if err != nil {
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
@@ -156,16 +136,6 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2
 }
 
 func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3, err error) {
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		if log.GetLevel() >= log.DebugLevel {
-			r.cfg.Logger.WithFields(log.Fields{
-				"peer_id": pid.String(),
-				"error":   err,
-			}).Debug("Failed to ensure connection to peer for MetaDataV3")
-		}
-		return nil, err
-	}
-
 	if log.GetLevel() >= log.DebugLevel {
 		r.cfg.Logger.WithFields(log.Fields{
 			"peer_id":  pid.String(),
@@ -233,11 +203,6 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 
 // block requests
 func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, finishSlot int64) ([]*deneb.SignedBeaconBlock, error) {
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return nil, err
-	}
-	var err error
-
 	blocks := make([]*deneb.SignedBeaconBlock, 0)
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCBlocksByRangeTopicV2))
 	if err != nil {
@@ -276,9 +241,6 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 
 func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, finishSlot uint64) (time.Duration, []*deneb.SignedBeaconBlock, error) {
 	blocks := make([]*deneb.SignedBeaconBlock, 0)
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return time.Duration(0), blocks, err
-	}
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCBlocksByRangeTopicV2))
 	if err != nil {
 		return time.Duration(0), blocks, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
@@ -320,9 +282,6 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 // https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyrange-v1
 func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uint64, columnIdxs []uint64) (time.Duration, []*DataColumnSidecarV1, error) {
 	dataColumns := make([]*DataColumnSidecarV1, 0)
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return time.Duration(0), dataColumns, err
-	}
 	chunks := uint64(1 * len(columnIdxs) * PeerDAScolumns)
 
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRangeTopicV1))
@@ -374,9 +333,6 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 // https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyroot-v1
 func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot [32]byte, columnIdxs []uint64, bslot uint64) (time.Duration, []*DataColumnSidecarV1, error) {
 	dataColumns := make([]*DataColumnSidecarV1, 0)
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return time.Duration(0), dataColumns, err
-	}
 	chunks := uint64(1 * len(columnIdxs))
 
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRootTopicV1))
