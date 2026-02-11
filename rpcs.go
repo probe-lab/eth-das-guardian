@@ -10,40 +10,26 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
-const PeerDAScolumns = 128
-
-func (r *ReqResp) EnsureConnectionToPeer(ctx context.Context, pid peer.ID) error {
-	constatus := r.host.Network().Connectedness(pid)
-	if constatus != network.Connected {
-		return r.host.Connect(ctx, r.host.Peerstore().PeerInfo(pid))
-	}
-	return nil
-}
+const PeerDASColumns = 128
 
 func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return err
-	}
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCPingTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCPingTopicV1)
 	if err != nil {
 		return fmt.Errorf("new %s stream to peer %s: %w", RPCPingTopicV1, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	req := uint64(1)
 	if err := r.writeRequest(stream, &req); err != nil {
-		stream.Reset()
 		return fmt.Errorf("write ping request: %w", err)
 	}
 
 	// read and decode ping response
 	resp := uint64(0)
 	if err := r.readResponse(stream, &resp); err != nil {
-		stream.Reset()
 		return fmt.Errorf("read ping response: %w", err)
 	}
 
@@ -54,41 +40,40 @@ func (r *ReqResp) Ping(ctx context.Context, pid peer.ID) (err error) {
 }
 
 func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID, goodbyeCode uint64) (err error) {
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCGoodByeTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCGoodByeTopicV1)
 	if err != nil {
 		return fmt.Errorf("new %s stream to peer %s: %w", RPCGoodByeTopicV1, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	// make sure that we write the given code on goodbye
-	req := uint64(goodbyeCode)
-	if err := r.writeRequest(stream, &req); err != nil {
-		stream.Reset()
+	if err := r.writeRequest(stream, &goodbyeCode); err != nil {
 		return fmt.Errorf("write goodbye request: %w", err)
 	}
-	return stream.Close()
+
+	_ = stream.Close()
+
+	return nil
 }
 
 func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (status *StatusV1, err error) {
-	if isNill(st) {
+	if st == nil {
 		return nil, fmt.Errorf("the given local-status-v1 is a nil pointer")
 	}
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return nil, err
-	}
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCStatusTopicV1))
+
+	stream, err := r.host.NewStream(ctx, pid, RPCStatusTopicV1)
 	if err != nil {
 		return nil, fmt.Errorf("new stream to peer %s: %w", pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	if err := r.writeRequest(stream, st); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("write status-v1 request: %w", err)
 	}
 
 	// read and decode status response
 	resp := &StatusV1{}
 	if err := r.readResponse(stream, resp); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("read status-v1 response: %w", err)
 	}
 
@@ -99,26 +84,23 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (stat
 }
 
 func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (status *StatusV2, err error) {
-	if isNill(st) {
+	if st == nil {
 		return nil, fmt.Errorf("the given local-status-v2 is a nil pointer")
 	}
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return nil, errors.Wrap(err, "connection wasn't stablished when requesting status-v2")
-	}
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCStatusTopicV2))
+
+	stream, err := r.host.NewStream(ctx, pid, RPCStatusTopicV2)
 	if err != nil {
 		return nil, fmt.Errorf("new stream to peer %s: %w", pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	if err := r.writeRequest(stream, st); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("write status-v2 request: %w", err)
 	}
 
 	// read and decode status response
 	resp := &StatusV2{}
 	if err := r.readResponse(stream, resp); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("read status-v2 response: %w", err)
 	}
 
@@ -129,23 +111,19 @@ func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (stat
 }
 
 func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2, err error) {
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return nil, err
-	}
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV2))
+	stream, err := r.host.NewStream(ctx, pid, RPCMetaDataTopicV2)
 	if err != nil {
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	if err := r.writeRequest(stream, nil); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("write metadata-v2 request: %w", err)
 	}
 
 	// read and decode metadata response
 	resp = &MetaDataV2{}
 	if err := r.readResponse(stream, resp); err != nil {
-		stream.Reset()
 		return nil, fmt.Errorf("read metadata-v2 response: %w", err)
 	}
 
@@ -156,43 +134,27 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2
 }
 
 func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3, err error) {
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		if log.GetLevel() >= log.DebugLevel {
-			r.cfg.Logger.WithFields(log.Fields{
-				"peer_id": pid.String(),
-				"error":   err,
-			}).Debug("Failed to ensure connection to peer for MetaDataV3")
-		}
-		return nil, err
-	}
+	r.cfg.Logger.WithFields(log.Fields{
+		"peer_id":  pid.String(),
+		"protocol": RPCMetaDataTopicV3,
+	}).Debug("Creating MetaDataV3 stream")
 
-	if log.GetLevel() >= log.DebugLevel {
+	stream, err := r.host.NewStream(ctx, pid, RPCMetaDataTopicV3)
+	if err != nil {
 		r.cfg.Logger.WithFields(log.Fields{
 			"peer_id":  pid.String(),
 			"protocol": RPCMetaDataTopicV3,
-		}).Debug("Creating MetaDataV3 stream")
-	}
-
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCMetaDataTopicV3))
-	if err != nil {
-		if log.GetLevel() >= log.DebugLevel {
-			r.cfg.Logger.WithFields(log.Fields{
-				"peer_id":  pid.String(),
-				"protocol": RPCMetaDataTopicV3,
-				"error":    err,
-			}).Debug("Failed to create MetaDataV3 stream")
-		}
+			"error":    err,
+		}).Debug("Failed to create MetaDataV3 stream")
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV3, pid, err)
 	}
+	defer stream.Reset()
 
 	if err := r.writeRequest(stream, nil); err != nil {
-		stream.Reset()
-		if log.GetLevel() >= log.DebugLevel {
-			r.cfg.Logger.WithFields(log.Fields{
-				"peer_id": pid.String(),
-				"error":   err,
-			}).Debug("Failed to write MetaDataV3 request")
-		}
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id": pid.String(),
+			"error":   err,
+		}).Debug("Failed to write MetaDataV3 request")
 		return nil, fmt.Errorf("write metadata-v3 request: %w", err)
 	}
 
@@ -205,25 +167,20 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 	// read and decode metadata response with detailed logging
 	resp = &MetaDataV3{}
 	if err := r.readResponse(stream, resp); err != nil {
-		stream.Reset()
-		if log.GetLevel() >= log.DebugLevel {
-			r.cfg.Logger.WithFields(log.Fields{
-				"peer_id": pid.String(),
-				"error":   err,
-			}).Debug("Failed to read MetaDataV3 response")
-		}
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id": pid.String(),
+			"error":   err,
+		}).Debug("Failed to read MetaDataV3 response")
 		return nil, fmt.Errorf("read metadata-v3 response: %w", err)
 	}
 
-	if log.GetLevel() >= log.DebugLevel {
-		r.cfg.Logger.WithFields(log.Fields{
-			"peer_id":                      pid.String(),
-			"response_seq_number":          resp.SeqNumber,
-			"response_attnets":             fmt.Sprintf("0x%x", resp.Attnets),
-			"response_syncnets":            fmt.Sprintf("0x%x", resp.Syncnets),
-			"response_custody_group_count": resp.CustodyGroupCount,
-		}).Debug("Successfully received MetaDataV3 response with full payload")
-	}
+	r.cfg.Logger.WithFields(log.Fields{
+		"peer_id":                      pid.String(),
+		"response_seq_number":          resp.SeqNumber,
+		"response_attnets":             fmt.Sprintf("0x%x", resp.Attnets),
+		"response_syncnets":            fmt.Sprintf("0x%x", resp.Syncnets),
+		"response_custody_group_count": resp.CustodyGroupCount,
+	}).Debug("Successfully received MetaDataV3 response with full payload")
 
 	// we have the data that we want, close stream cleanly
 	_ = stream.Close()
@@ -231,18 +188,13 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 	return resp, nil
 }
 
-// block requests
 func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, finishSlot int64) ([]*deneb.SignedBeaconBlock, error) {
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return nil, err
-	}
-	var err error
-
 	blocks := make([]*deneb.SignedBeaconBlock, 0)
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCBlocksByRangeTopicV2))
+	stream, err := r.host.NewStream(ctx, pid, RPCBlocksByRangeTopicV2)
 	if err != nil {
 		return blocks, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	req := &BeaconBlocksByRangeRequestV1{
 		StartSlot: uint64(startSlot),
@@ -250,7 +202,6 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 		Step:      1,
 	}
 	if err := r.writeRequest(stream, req); err != nil {
-		stream.Reset()
 		return blocks, fmt.Errorf("write block_by_range request: %w", err)
 	}
 
@@ -263,7 +214,6 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 			break
 		}
 		if err != nil {
-			stream.Reset()
 			return nil, fmt.Errorf("reading block_by_range request: %w", err)
 		}
 		blocks = append(blocks, block)
@@ -271,18 +221,17 @@ func (r *ReqResp) RawBlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot
 
 	// close stream cleanly after successful operation
 	_ = stream.Close()
+
 	return blocks, nil
 }
 
 func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, finishSlot uint64) (time.Duration, []*deneb.SignedBeaconBlock, error) {
 	blocks := make([]*deneb.SignedBeaconBlock, 0)
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return time.Duration(0), blocks, err
-	}
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCBlocksByRangeTopicV2))
+	stream, err := r.host.NewStream(ctx, pid, RPCBlocksByRangeTopicV2)
 	if err != nil {
 		return time.Duration(0), blocks, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV2, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	req := &BeaconBlocksByRangeRequestV1{
 		StartSlot: startSlot,
@@ -290,7 +239,6 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 		Step:      1,
 	}
 	if err := r.writeRequest(stream, req); err != nil {
-		stream.Reset()
 		return time.Duration(0), blocks, fmt.Errorf("write block_by_range request: %w", err)
 	}
 
@@ -304,7 +252,6 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 			break
 		}
 		if err != nil {
-			stream.Reset()
 			return time.Duration(0), nil, fmt.Errorf("reading block_by_range request: %w", err)
 		}
 		blocks = append(blocks, block)
@@ -313,6 +260,7 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 
 	// close stream cleanly after successful operation
 	_ = stream.Close()
+
 	return opDuration, blocks, nil
 }
 
@@ -320,15 +268,13 @@ func (r *ReqResp) BlocksByRangeV2(ctx context.Context, pid peer.ID, startSlot, f
 // https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyrange-v1
 func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uint64, columnIdxs []uint64) (time.Duration, []*DataColumnSidecarV1, error) {
 	dataColumns := make([]*DataColumnSidecarV1, 0)
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return time.Duration(0), dataColumns, err
-	}
-	chunks := uint64(1 * len(columnIdxs) * PeerDAScolumns)
+	chunks := uint64(1 * len(columnIdxs) * PeerDASColumns)
 
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRangeTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCDataColumnSidecarsByRangeTopicV1)
 	if err != nil {
 		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRangeTopicV1, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	req := &DataColumnSidecarsByRangeRequestV1{
 		StartSlot: slot,
@@ -336,7 +282,6 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 		Columns:   columnIdxs,
 	}
 	if err := r.writeRequest(stream, req); err != nil {
-		stream.Reset()
 		return time.Duration(0), dataColumns, fmt.Errorf("write data_columns_by_range request: %w", err)
 	}
 
@@ -351,14 +296,12 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 		}
 
 		if err != nil {
-			stream.Reset()
 			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar")
 		}
 
 		if i >= chunks {
 			// The response MUST contain no more than `reqCount` blocks.
 			// (`reqCount` is already capped by `maxRequestDataColumnSideCar`.)
-			stream.Reset()
 			return time.Duration(0), dataColumns, errors.New("invalid - response contains more data column sidecars than requested")
 		}
 
@@ -371,18 +314,16 @@ func (r *ReqResp) DataColumnByRangeV1(ctx context.Context, pid peer.ID, slot uin
 	return opDuration, dataColumns, nil
 }
 
-// https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyroot-v1
+// DataColumnByRootV1 taken from https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/p2p-interface.md#datacolumnsidecarsbyroot-v1
 func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot [32]byte, columnIdxs []uint64, bslot uint64) (time.Duration, []*DataColumnSidecarV1, error) {
 	dataColumns := make([]*DataColumnSidecarV1, 0)
-	if err := r.EnsureConnectionToPeer(ctx, pid); err != nil {
-		return time.Duration(0), dataColumns, err
-	}
 	chunks := uint64(1 * len(columnIdxs))
 
-	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCDataColumnSidecarsByRootTopicV1))
+	stream, err := r.host.NewStream(ctx, pid, RPCDataColumnSidecarsByRootTopicV1)
 	if err != nil {
 		return time.Duration(0), dataColumns, fmt.Errorf("new %s stream to peer %s: %w", RPCDataColumnSidecarsByRootTopicV1, pid, err)
 	}
+	defer stream.Reset() // no-op if stream closed
 
 	reqBlocks := []DataColumnByRootIdentifier{
 		{
@@ -391,7 +332,6 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 		},
 	}
 	if err := r.writeRequest(stream, DataColumnSidecarsByRootRequestV1(reqBlocks)); err != nil {
-		stream.Reset()
 		return time.Duration(0), dataColumns, fmt.Errorf("write data_columns_by_root request: %w", err)
 	}
 
@@ -406,14 +346,12 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 		}
 
 		if err != nil {
-			stream.Reset()
 			return time.Duration(0), dataColumns, errors.Wrap(err, "read chunked data column sidecar")
 		}
 
 		if i >= chunks {
 			// The response MUST contain no more than `reqCount` blocks.
 			// (`reqCount` is already capped by `maxRequestDataColumnSideCar`.)
-			stream.Reset()
 			return time.Duration(0), dataColumns, errors.New("invalid - response contains more data column sidecars than requested")
 		}
 
@@ -423,5 +361,6 @@ func (r *ReqResp) DataColumnByRootV1(ctx context.Context, pid peer.ID, blockRoot
 
 	// close stream cleanly after successful operation
 	_ = stream.Close()
+
 	return opDuration, dataColumns, nil
 }
