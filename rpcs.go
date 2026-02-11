@@ -130,34 +130,27 @@ func (r *ReqResp) MetaDataV2(ctx context.Context, pid peer.ID) (resp *MetaDataV2
 }
 
 func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3, err error) {
-	if log.GetLevel() >= log.DebugLevel {
-		r.cfg.Logger.WithFields(log.Fields{
-			"peer_id":  pid.String(),
-			"protocol": RPCMetaDataTopicV3,
-		}).Debug("Creating MetaDataV3 stream")
-	}
+	r.cfg.Logger.WithFields(log.Fields{
+		"peer_id":  pid.String(),
+		"protocol": RPCMetaDataTopicV3,
+	}).Debug("Creating MetaDataV3 stream")
 
 	stream, err := r.host.NewStream(ctx, pid, RPCMetaDataTopicV3)
 	if err != nil {
-		if log.GetLevel() >= log.DebugLevel {
-			r.cfg.Logger.WithFields(log.Fields{
-				"peer_id":  pid.String(),
-				"protocol": RPCMetaDataTopicV3,
-				"error":    err,
-			}).Debug("Failed to create MetaDataV3 stream")
-		}
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id":  pid.String(),
+			"protocol": RPCMetaDataTopicV3,
+			"error":    err,
+		}).Debug("Failed to create MetaDataV3 stream")
 		return resp, fmt.Errorf("new %s stream to peer %s: %w", RPCMetaDataTopicV3, pid, err)
 	}
 	defer stream.Reset()
 
 	if err := r.writeRequest(stream, nil); err != nil {
-		stream.Reset()
-		if log.GetLevel() >= log.DebugLevel {
-			r.cfg.Logger.WithFields(log.Fields{
-				"peer_id": pid.String(),
-				"error":   err,
-			}).Debug("Failed to write MetaDataV3 request")
-		}
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id": pid.String(),
+			"error":   err,
+		}).Debug("Failed to write MetaDataV3 request")
 		return nil, fmt.Errorf("write metadata-v3 request: %w", err)
 	}
 
@@ -170,24 +163,20 @@ func (r *ReqResp) MetaDataV3(ctx context.Context, pid peer.ID) (resp *MetaDataV3
 	// read and decode metadata response with detailed logging
 	resp = &MetaDataV3{}
 	if err := r.readResponse(stream, resp); err != nil {
-		if log.GetLevel() >= log.DebugLevel {
-			r.cfg.Logger.WithFields(log.Fields{
-				"peer_id": pid.String(),
-				"error":   err,
-			}).Debug("Failed to read MetaDataV3 response")
-		}
+		r.cfg.Logger.WithFields(log.Fields{
+			"peer_id": pid.String(),
+			"error":   err,
+		}).Debug("Failed to read MetaDataV3 response")
 		return nil, fmt.Errorf("read metadata-v3 response: %w", err)
 	}
 
-	if log.GetLevel() >= log.DebugLevel {
-		r.cfg.Logger.WithFields(log.Fields{
-			"peer_id":                      pid.String(),
-			"response_seq_number":          resp.SeqNumber,
-			"response_attnets":             fmt.Sprintf("0x%x", resp.Attnets),
-			"response_syncnets":            fmt.Sprintf("0x%x", resp.Syncnets),
-			"response_custody_group_count": resp.CustodyGroupCount,
-		}).Debug("Successfully received MetaDataV3 response with full payload")
-	}
+	r.cfg.Logger.WithFields(log.Fields{
+		"peer_id":                      pid.String(),
+		"response_seq_number":          resp.SeqNumber,
+		"response_attnets":             fmt.Sprintf("0x%x", resp.Attnets),
+		"response_syncnets":            fmt.Sprintf("0x%x", resp.Syncnets),
+		"response_custody_group_count": resp.CustodyGroupCount,
+	}).Debug("Successfully received MetaDataV3 response with full payload")
 
 	// we have the data that we want, close stream cleanly
 	_ = stream.Close()
