@@ -57,7 +57,7 @@ func (r *ReqResp) GoodBye(ctx context.Context, pid peer.ID, goodbyeCode uint64) 
 }
 
 func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (status *StatusV1, err error) {
-	if isNill(st) {
+	if st == nil {
 		return nil, fmt.Errorf("the given local-status-v1 is a nil pointer")
 	}
 	stream, err := r.host.NewStream(ctx, pid, protocol.ID(RPCStatusTopicV1))
@@ -84,7 +84,7 @@ func (r *ReqResp) StatusV1(ctx context.Context, pid peer.ID, st *StatusV1) (stat
 }
 
 func (r *ReqResp) StatusV2(ctx context.Context, pid peer.ID, st *StatusV2) (status *StatusV2, err error) {
-	if isNill(st) {
+	if st == nil {
 		return nil, fmt.Errorf("the given local-status-v2 is a nil pointer")
 	}
 
